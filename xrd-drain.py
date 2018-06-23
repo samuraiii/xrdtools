@@ -5,7 +5,7 @@ from re import sub, escape, match
 from subprocess import call
 
 old_args = ''
-if len(sys.argv) < 6:
+if len(sys.argv) == 6:
     old_args = '\nYou gave:\n   ' + ' '.join(sys.argv)
     sys.argv[1:] = ['-h']
 
