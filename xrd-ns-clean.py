@@ -4,7 +4,7 @@ import sys
 from subprocess import call
 
 old_args = ''
-if len(sys.argv) < 2 or len(sys.argv) > 2 :
+if len(sys.argv) == 2:
     old_args = '\nYou gave:\n   ' + ' '.join(sys.argv)
     sys.argv[1:] = ['-h']
 
