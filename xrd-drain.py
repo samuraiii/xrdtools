@@ -4,14 +4,14 @@ import sys
 from re import sub, escape, match
 from subprocess import call
 
-old_args = ""
+old_args = ''
 if len(sys.argv) < 6:
-    old_args = "\nYou gave:\n   " + ' '.join(sys.argv)
-    sys.argv[1:] = ["-h"]
+    old_args = '\nYou gave:\n   ' + ' '.join(sys.argv)
+    sys.argv[1:] = ['-h']
 
-if ( "-h" in sys.argv ) or ( "--help" in sys.argv ):
-    print("This script is to be used in this way:")
-    print(sys.argv[0] + " /source/name/space/path /source/path [user@]destination.server[:port] /destination/name/space/path /destination/path" + old_args)
+if ( '-h' in sys.argv ) or ( '--help' in sys.argv ):
+    print('This script is to be used in this way:')
+    print(sys.argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port] /destination/name/space/path /destination/path' + old_args)
     sys.exit(0)
 
 s_ns = sys.argv[1]
@@ -23,24 +23,24 @@ dtransfers = 1
 illegals = []
 sync_dirs_only = [ '--include=*/', '--exclude=*' ]
 
-if ":" in list(d_server):
+if ':' in list(d_server):
     d_server, port = d_server.split(':')
 else:
-    port = "22"
+    port = '22'
 
-if "@" in list(d_server):
+if '@' in list(d_server):
     user, d_server = d_server.split('@')
 else:
-    user = "root"
+    user = 'root'
 
 def cdnf( cdir ):
-    "This check if parameter is existing dir or it fails script"
+    'This check if parameter is existing dir or it fails script'
     if not os.path.isdir(cdir):
-        sys.exit(cdir + " should be directory but it is not!")
+        sys.exit(cdir + ' should be directory but it is not!')
     return
 
 def flatten(S):
-    "Flattens list recursively"
+    'Flattens list recursively'
     if S == []:
         return S
     if isinstance(S[0], list):
@@ -48,18 +48,18 @@ def flatten(S):
     return S[:1] + flatten(S[1:])
 
 def rds ( string ):
-    "Removes // from string"
+    'Removes // from string'
     return sub('//', '/', string )
 
 def rsync( cmd ):
-    "Call rsync with given arguments (Pass only options to this function)"
+    'Call rsync with given arguments (Pass only options to this function)'
     # Use lighter (arc4) encryption and no Compression to speed transfers up
     cmd = flatten([ '/usr/bin/rsync', '-a', '-e', '/usr/bin/ssh -T -c arcfour -o Compression=no -x -p ' + port + ' -l ' + user, cmd ])
     return call(cmd)
 
 def migrate( lin, fil ):
-    "This migrates data and link to new destination"
-    # Create destination "addresses"
+    'This migrates data and link to new destination'
+    # Create destination 'addresses'
     d_file = rds(sub(escape(src), dest + '/', fil))
     d_link = rds(sub(escape(s_ns), d_ns + '/', lin))
     cmd = [ rds(fil), rds(d_server + ':/' + d_file)]
@@ -72,13 +72,13 @@ def migrate( lin, fil ):
             os.remove(fil)
         else:
             # Link failure
-            print("Failed to create link " + d_server + ":" + d_link)
+            print('Failed to create link ' + d_server + ':' + d_link)
     else :
         # Data failure
-        print("Failed to copy file: " + fil + " to: " + d_server + ":" + d_file)
+        print('Failed to copy file: ' + fil + ' to: ' + d_server + ':' + d_file)
 
 def clean_empty_dirs( d ):
-    "Finds (depth first) all empty dirs and deletes them"
+    'Finds (depth first) all empty dirs and deletes them'
     call(['/bin/find', d, '-mindepth', '1', '-type', 'd', '-empty', '-delete' ])
 
 sync_ns_dirs = [ sync_dirs_only, rds(s_ns + '/'), rds(d_server + ':/' + d_ns) ]
@@ -92,14 +92,14 @@ cdnf(src)
 try:
     rsync(sync_ns_dirs)
 except:
-    sys.exit("Initial sync of name space dirs failed")
+    sys.exit('Initial sync of name space dirs failed (Is ssh connection to ' + d_server + ' possible?')
 
 try:
     rsync(sync_storage_dirs)
 except:
-    sys.exit("Initial sync of data dirs failed")
+    sys.exit('Initial sync of data dirs failed')
 
-# Find all valid liks and corresponding files
+# Find all valid links and corresponding files
 for root, dirs, files in os.walk(s_ns):
     for filename in files:
         # Create file name
@@ -119,7 +119,7 @@ for root, dirs, files in os.walk(s_ns):
                     os.remove(path)
                 else:
                     # Migrate all data
-                    sys.stdout.write("Migrating file {0}: {1}\n".format(dtransfers, path))
+                    sys.stdout.write('Migrating file {0}: {1}\n'.format(dtransfers, path))
                     migrate(path, target)
                     dtransfers += 1
         else:
@@ -129,20 +129,20 @@ for root, dirs, files in os.walk(s_ns):
 #Count all illegals
 icount = len(illegals)
 if icount > 0:
-    d = ""
+    d = ''
     # Ask what to do about all illegal files
-    # Ignore it with "q"
-    while d != "q" or d != "Q":
-        print("Found {0} illegal (not links) entries in namespace.\nWhat would you like to do about it?".format(icount))
-        d = raw_input("(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n")
+    # Ignore it with 'q'
+    while d != 'q' or d != 'Q':
+        print('Found {0} illegal (not links) entries in namespace.\nWhat would you like to do about it?'.format(icount))
+        d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
         # Delete illegals
-        if d == "D" or d == "d":
+        if d == 'D' or d == 'd':
             for f in illegals:
                 os.remove(f)
-            print("Illegal entries were deleted.")
-            d = "Q"
+            print('Illegal entries were deleted.')
+            d = 'Q'
         # List all illegal files
-        elif d == "L" or d == "l":
+        elif d == 'L' or d == 'l':
             print(illegals)
         else:
             print('Unknown choice "' + d +'"!')
