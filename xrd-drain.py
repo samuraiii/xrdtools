@@ -71,7 +71,7 @@ def migrate( lin, fil ):
     # Rsync data file
     if rsync(cmd) == 0:
         # Create link on destination
-        if call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown ' + fileog + ' ' + d_link ]) == 0:
+        if call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h' + fileog + ' ' + d_link ]) == 0:
             # Remove source data
             os.remove(lin)
             os.remove(fil)
