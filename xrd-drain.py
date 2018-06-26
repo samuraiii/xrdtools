@@ -1,17 +1,17 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 import os
 import sys
 from re import sub, escape, match
 from subprocess import call
 
 old_args = ''
-if len(sys.argv) == 6:
+if not(len(sys.argv) == 7):
     old_args = '\nYou gave:\n   ' + ' '.join(sys.argv)
     sys.argv[1:] = ['-h']
 
 if ( '-h' in sys.argv ) or ( '--help' in sys.argv ):
     print('This script is to be used in this way:')
-    print(sys.argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port] /destination/name/space/path /destination/path' + old_args)
+    print(sys.argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port] /destination/name/space/path /destination/path user:group' + old_args)
     sys.exit(0)
 
 s_ns = sys.argv[1]
@@ -19,9 +19,14 @@ src = sys.argv[2]
 d_server = sys.argv[3]
 d_ns = sys.argv[4]
 dest = sys.argv[5]
+fileog = sys.argv[6]
 dtransfers = 1
 illegals = []
 sync_dirs_only = [ '--include=*/', '--exclude=*' ]
+usermatch = '[a-z][a-z0-9\\\-]+'
+
+if not match(usermatch + ':' + usermatch, fileog):
+    sys.exit(fileog + ' is not a valid user:group definition.')
 
 if ':' in list(d_server):
     d_server, port = d_server.split(':')
@@ -66,7 +71,7 @@ def migrate( lin, fil ):
     # Rsync data file
     if rsync(cmd) == 0:
         # Create link on destination
-        if call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/ln -sf ' + d_file + ' ' + d_link]) == 0:
+        if call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown ' + fileog + ' ' + d_link ]) == 0:
             # Remove source data
             os.remove(lin)
             os.remove(fil)
@@ -98,6 +103,14 @@ try:
     rsync(sync_storage_dirs)
 except:
     sys.exit('Initial sync of data dirs failed')
+
+testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359'
+testfile = [ d_ns + testfile, dest + testfile ]
+try:
+    for f in testfile:
+        call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ])
+except:
+    sys.exit('Writing of testfiles to ' + d_ns + ' and ' + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
 
 # Find all valid links and corresponding files
 for root, dirs, files in os.walk(s_ns):
