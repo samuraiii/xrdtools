@@ -1,10 +1,10 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 import os
 import sys
 from subprocess import call
 
 old_args = ''
-if len(sys.argv) == 2:
+if not(len(sys.argv) == 2):
     old_args = '\nYou gave:\n   ' + ' '.join(sys.argv)
     sys.argv[1:] = ['-h']
 
@@ -16,6 +16,7 @@ if ( '-h' in sys.argv ) or ( '--help' in sys.argv ):
 
 ns = sys.argv[1]
 illegals = []
+filelist = {}
 
 if not os.path.isdir(ns):
     sys.exit(ns + ' should be directory but it is not!')
@@ -42,9 +43,19 @@ for root, dirs, files in os.walk(ns):
                 # Delete all matching dead links
                 print('Removing dead link: ' + path)
                 os.remove(path)
+            else:
+                filelist.setdefault(target, []).append(path)
         else:
             # Add to illegal files if file is not a link
             illegals.append(path)
+
+# remove double linked files
+for k in filelist.keys():
+    if not(len(filelist[k]) == 1):
+        for li in filelist[k]:
+            os.remove(li)
+        os.remove(k)
+    del link_list[k]
 
 #Count all illegals
 icount = len(illegals)
