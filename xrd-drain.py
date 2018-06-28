@@ -23,6 +23,8 @@ fileog = sys.argv[6]
 dtransfers = 1
 illegals = []
 sync_dirs_only = [ '--include=*/', '--exclude=*' ]
+sshcsocket = [ '-o', 'ControlMaster=auto', '-o', 'ControlPath=/dev/shm/.xrd-drain-ssh_socket_%h_%p_%r', '-o', 'ControlPersist=1200' ]
+sshcsocketf = ' ' + sshcsocket.join(' ') + ' '
 usermatch = '[a-z][a-z0-9\\\-]+'
 
 if not match(usermatch + ':' + usermatch, fileog):
@@ -59,7 +61,8 @@ def rds ( string ):
 def rsync( cmd ):
     'Call rsync with given arguments (Pass only options to this function)'
     # Use lighter (arc4) encryption and no Compression to speed transfers up
-    cmd = flatten([ '/usr/bin/rsync', '-a', '-e', '/usr/bin/ssh -T -c arcfour -o Compression=no -x -p ' + port + ' -l ' + user, cmd ])
+    sshopts = '/usr/bin/ssh -T -c arcfour -o Compression=no -x' + sshcsocketf + '-p ' + port + ' -l ' + user
+    cmd = flatten([ '/usr/bin/rsync', '-a', '-e', sshopts, cmd ])
     return call(cmd)
 
 def migrate( lin, fil ):
@@ -71,7 +74,7 @@ def migrate( lin, fil ):
     # Rsync data file
     if rsync(cmd) == 0:
         # Create link on destination
-        if call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h' + fileog + ' ' + d_link ]) == 0:
+        if call(flatten([ '/usr/bin/ssh', '-p', port, sshcsocket, '-l', user, d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h' + fileog + ' ' + d_link ])) == 0:
             # Remove source data
             os.remove(lin)
             os.remove(fil)
@@ -108,7 +111,7 @@ testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359'
 testfile = [ d_ns + testfile, dest + testfile ]
 try:
     for f in testfile:
-        call([ '/usr/bin/ssh', '-p', port, user + '@' + d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ])
+        call(flatten([ '/usr/bin/ssh', '-p', port, sshcsocket, '-l', user, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ]))
 except:
     sys.exit('Writing of testfiles to ' + d_ns + ' and ' + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
 
