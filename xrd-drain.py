@@ -16,6 +16,7 @@ if ( '-h' in sys.argv ) or ( '--help' in sys.argv ):
 
 s_ns = sys.argv[1]
 src = sys.argv[2]
+src_id = sub('[\s/]', '', src)
 d_server = sys.argv[3]
 d_ns = sys.argv[4]
 dest = sys.argv[5]
@@ -23,8 +24,6 @@ fileog = sys.argv[6]
 dtransfers = 1
 illegals = []
 sync_dirs_only = [ '--include=*/', '--exclude=*' ]
-sshcsocket = [ '-o', 'ControlMaster=auto', '-o', 'ControlPath=/dev/shm/.xrd-drain-ssh_socket_%h_%p_%r', '-o', 'ControlPersist=1200' ]
-sshcsocketf = ' ' + sshcsocket.join(' ') + ' '
 usermatch = '[a-z][a-z0-9\\\-]+'
 
 if not match(usermatch + ':' + usermatch, fileog):
@@ -39,6 +38,20 @@ if '@' in list(d_server):
     user, d_server = d_server.split('@')
 else:
     user = 'root'
+
+ssh = [
+        '/usr/bin/ssh',
+        '-o', 'ControlMaster=auto',
+        '-o', 'ControlPath=/dev/shm/.xrd-drain-ssh_socket_%h_%p_%r' + src_id,
+        '-o', 'ControlPersist=1200',
+        '-c', 'arcfour',
+        '-o', 'Compression=no',
+        '-x',
+        '-T',
+        '-p', port,
+        '-l', user
+    ]
+sshf = ' ' + ' '.join(ssh) + ' '
 
 def cdnf( cdir ):
     'This check if parameter is existing dir or it fails script'
@@ -61,8 +74,7 @@ def rds ( string ):
 def rsync( cmd ):
     'Call rsync with given arguments (Pass only options to this function)'
     # Use lighter (arc4) encryption and no Compression to speed transfers up
-    sshopts = '/usr/bin/ssh -T -c arcfour -o Compression=no -x' + sshcsocketf + '-p ' + port + ' -l ' + user
-    cmd = flatten([ '/usr/bin/rsync', '-a', '-e', sshopts, cmd ])
+    cmd = flatten([ '/usr/bin/rsync', '-a', '-e', sshf, cmd ])
     return call(cmd)
 
 def migrate( lin, fil ):
@@ -74,7 +86,7 @@ def migrate( lin, fil ):
     # Rsync data file
     if rsync(cmd) == 0:
         # Create link on destination
-        if call(flatten([ '/usr/bin/ssh', '-p', port, sshcsocket, '-l', user, d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h' + fileog + ' ' + d_link ])) == 0:
+        if call(flatten([ ssh, d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h ' + fileog + ' ' + d_link ])) == 0:
             # Remove source data
             os.remove(lin)
             os.remove(fil)
@@ -111,7 +123,7 @@ testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359'
 testfile = [ d_ns + testfile, dest + testfile ]
 try:
     for f in testfile:
-        call(flatten([ '/usr/bin/ssh', '-p', port, sshcsocket, '-l', user, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ]))
+        call(flatten([ ssh, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ]))
 except:
     sys.exit('Writing of testfiles to ' + d_ns + ' and ' + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
 
@@ -135,7 +147,7 @@ for root, dirs, files in os.walk(s_ns):
                     os.remove(path)
                 else:
                     # Migrate all data
-                    sys.stdout.write('Migrating file {0}: {1}\n'.format(dtransfers, path))
+                    sys.stdout.write('Migrating file %s: %s\n' % (str(dtransfers), path))
                     migrate(path, target)
                     dtransfers += 1
         else:
@@ -149,14 +161,14 @@ if icount > 0:
     # Ask what to do about all illegal files
     # Ignore it with 'q'
     while d != 'q' or d != 'Q':
-        print('Found {0} illegal (not links) entries in namespace.\nWhat would you like to do about it?'.format(icount))
+        print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
         d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
         # Delete illegals
         if d == 'D' or d == 'd':
             for f in illegals:
                 os.remove(f)
             print('Illegal entries were deleted.')
-            d = 'Q'
+            break
         # List all illegal files
         elif d == 'L' or d == 'l':
             print(illegals)
