@@ -4,6 +4,7 @@ from re import escape, match, sub
 from subprocess import call
 from sys import argv, exit, stdout
 from uuid import uuid4 as uuid
+from hashlib import md5
 
 old_args = ''
 if not(len(argv) == 7):
@@ -17,7 +18,7 @@ if ( '-h' in argv ) or ( '--help' in argv ):
 
 s_ns = argv[1]
 src = argv[2]
-src_id = sub('[\s/]', '_', src) + '-' + str(uuid())
+src_id = md5(src + str(uuid())).hexdigest()
 d_server = argv[3]
 d_ns = argv[4]
 dest = argv[5]
@@ -43,9 +44,8 @@ else:
 ssh = [
         '/usr/bin/ssh',
         '-o', 'ControlMaster=auto',
-        '-o', 'ControlPath=/dev/shm/.xrd-drain-ssh_socket_%h_%p_%r-' + src_id,
+        '-o', 'ControlPath=/dev/shm/.xrd-drain-' + src_id + '.socket',
         '-o', 'ControlPersist=1200',
-        '-c', 'arcfour',
         '-o', 'Compression=no',
         '-x',
         '-T',
