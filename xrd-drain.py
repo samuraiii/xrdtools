@@ -5,6 +5,12 @@ from subprocess import call
 from sys import argv, exit, stdout
 from uuid import uuid4 as uuid
 from hashlib import md5
+try:
+    from multiprocessing import Queue, Lock, Pool, cpu_count
+    mp = True
+except:
+    print 'No multiprocessing module found, parallel processing disabled.'
+    mp = False
 
 old_args = ''
 if not(len(argv) == 7):
@@ -13,7 +19,7 @@ if not(len(argv) == 7):
 
 if ( '-h' in argv ) or ( '--help' in argv ):
     print('This script is to be used in this way:')
-    print(argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port] /destination/name/space/path /destination/path user:group' + old_args)
+    print(argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port] /destination/name/space/path /destination/path user:group [number of threads]' + old_args)
     exit(0)
 
 s_ns = argv[1]
@@ -27,6 +33,16 @@ dtransfers = 1
 illegals = []
 sync_dirs_only = [ '--include=*/', '--exclude=*' ]
 usermatch = '[a-z][a-z0-9\\\-]+'
+
+if len(argv) == 8:
+    mp_threads = argv[7]
+elif mp:
+    mp_threads = cpu_count()
+else:
+    mp_threads = 1
+
+if mp_threads == 1:
+    mp = False
 
 if not match(usermatch + ':' + usermatch, fileog):
     exit(fileog + ' is not a valid user:group definition.')
@@ -54,11 +70,22 @@ ssh = [
     ]
 sshf = ' ' + ' '.join(ssh) + ' '
 
+
+class noop(object):
+    def __init__(*args):
+        pass
+    def __enter__(*args):
+        pass
+    def __exit__(*args):
+        pass
+
+
 def cdnf( cdir ):
     'This check if parameter is existing dir or it fails script'
     if not path.isdir(cdir):
         exit(cdir + ' should be directory but it is not!')
     return
+
 
 def flatten(S):
     'Flattens list recursively'
@@ -82,13 +109,15 @@ def rds ( string ):
     'Removes // from string'
     return sub('//', '/', string )
 
+
 def rsync( cmd ):
     'Call rsync with given arguments (Pass only options to this function)'
     # Use lighter (arc4) encryption and no Compression to speed transfers up
     cmd = flatten([ '/usr/bin/rsync', '-a', '-e', sshf, cmd ])
     return call(cmd)
 
-def migrate( lin, fil ):
+
+def migrate( lin, fil, m_transfers, ilock ):
     'This migrates data and link to new destination'
     # Create destination 'addresses'
     d_file = rds(sub(escape(src), dest + '/', fil))
@@ -108,14 +137,27 @@ def migrate( lin, fil ):
                 # Remove source data
                 remove(lin)
                 remove(fil)
+                with ilock:
+                    print('%s: Done migrating file:  %s' % (m_transfers.rjust(8), lin))
             else:
-                # Link failure
-                print('Failed to create link ' + d_server + ':' + d_link + ' or to set permissions!')
+                with ilock:
+                    # Link failure
+                    print('Failed to create link ' + d_server + ':' + d_link + ' or to set permissions!')
         else :
-            # Data failure
-            print('Failed to copy file: ' + fil + ' to: ' + d_server + ':' + d_file)
+            with ilock:
+                # Data failure
+                print('Failed to copy file: ' + fil + ' to: ' + d_server + ':' + d_file)
     else :
-        print('Failed to create directories: ' + d_filedir + ' and/or ' + d_linkdir )
+        with ilock:
+            print('Failed to create directories: ' + d_filedir + ' and/or ' + d_linkdir )
+
+
+def mp_process(mp_queue, mp_iolock):
+    while True:
+        mp_link, mp_file, mp_number = mp_queue.get()
+        if mp_link is None or mp_file is None or mp_number is None:
+            break
+        migrate( mp_link, mp_file, mp_number, mp_iolock )
 
 
 def clean_empty_dirs( d ):
@@ -123,83 +165,86 @@ def clean_empty_dirs( d ):
     call(['/bin/find', d, '-mindepth', '1', '-type', 'd', '-empty', '-delete' ])
 
 
-# Check if name space and source are dirs
-cdnf(s_ns)
-cdnf(src)
+if __name__ == '__main__':
+    # Check if name space and source are dirs
+    cdnf(s_ns)
+    cdnf(src)
 
-#sync_ns_dirs = [ sync_dirs_only, rds(s_ns + '/'), rds(d_server + ':/' + d_ns) ]
-#sync_storage_dirs = [ sync_dirs_only, rds(src + '/'), rds(d_server + ':/' + dest) ]
-# Prepare directory structure on destination
-#try:
-#    rsync(sync_ns_dirs)
-#except:
-#    exit('Initial sync of name space dirs failed (Is ssh connection to ' + d_server + ' possible?')
+    testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359' + src_id
+    testfile = [ d_ns + testfile, dest + testfile ]
+    try:
+        for f in testfile:
+            call(flatten([ ssh, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ]))
+    except:
+        exit('Writing of testfiles to ' + d_ns + ' and ' + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
 
-#try:
-#    rsync(sync_storage_dirs)
-#except:
-#    exit('Initial sync of data dirs failed')
+    if mp:
+        m_queue = Queue(maxsize=mp_threads)
+        iolock = Lock()
+        pool = Pool(mp_threads, initializer=mp_process, initargs=(m_queue, iolock))
+    else:
+        iolock = noop()
+    # Find all valid links and corresponding files
+    for root, dirs, files in walk(s_ns, topdown=False):
+        for filename in files:
+            # Create file name
+            filepath = path.join(root, filename)
+            # Check if it is link
+            if path.islink(filepath):
+                # Get link target
+                target = readlink(filepath)
+                # Check if link address is absolute
+                if not path.isabs(target):
+                    # Create absolute link address
+                    target = path.abspath(path.join(path.dirname(filepath), target))
+                # Select only likns belonging to src
+                if match(escape(src), target):
+                    if not path.exists(target):
+                        # Delete all matching dead links
+                        remove(filepath)
+                    else:
+                        # Migrate all data
+                        with iolock:
+                            stdout.write('%s: Start migrating file: %s\n' % (str(dtransfers).rjust(8), filepath))
+                        if mp:
+                            m_queue.put((filepath, target, str(dtransfers)))
+                        else:
+                            migrate(filepath, target, str(dtransfers), iolock)
+                        dtransfers += 1
+            else:
+                # Add to illegal files if file is not a link
+                illegals.append(filepath)
+    if mp:
+        for _ in range(mp_threads):
+            m_queue.put((None, None, None))
+        pool.close()
+        pool.join()
 
-testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359' + src_id
-testfile = [ d_ns + testfile, dest + testfile ]
-try:
-    for f in testfile:
-        call(flatten([ ssh, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f ]))
-except:
-    exit('Writing of testfiles to ' + d_ns + ' and ' + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
+    #Count all illegals
+    icount = len(illegals)
+    if icount > 0:
+        d = ''
+        # Ask what to do about all illegal files
+        # Ignore it with 'q'
+        while d != 'q' or d != 'Q':
+            print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
+            d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
+            # Delete illegals
+            if d == 'D' or d == 'd':
+                for f in illegals:
+                    remove(f)
+                print('Illegal entries were deleted.')
+                break
+            # List all illegal files
+            elif d == 'L' or d == 'l':
+                print(illegals)
+            elif d == 'Q' or d == 'q':
+                break
+            else:
+                print('Unknown choice "' + d +'"!')
 
-# Find all valid links and corresponding files
-for root, dirs, files in walk(s_ns, topdown=False):
-    for filename in files:
-        # Create file name
-        filepath = path.join(root, filename)
-        # Check if it is link
-        if path.islink(filepath):
-            # Get link target
-            target = readlink(filepath)
-            # Check if link address is absolute
-            if not path.isabs(target):
-                # Create absolute link address
-                target = path.abspath(path.join(path.dirname(filepath), target))
-            # Select only likns belonging to src
-            if match(escape(src), target):
-                if not path.exists(target):
-                    # Delete all matching dead links
-                    remove(filepath)
-                else:
-                    # Migrate all data
-                    stdout.write('Migrating file %s: %s\n' % (str(dtransfers), filepath))
-                    migrate(filepath, target)
-                    dtransfers += 1
-        else:
-            # Add to illegal files if file is not a link
-            illegals.append(filepath)
-
-#Count all illegals
-icount = len(illegals)
-if icount > 0:
-    d = ''
-    # Ask what to do about all illegal files
-    # Ignore it with 'q'
-    while d != 'q' or d != 'Q':
-        print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
-        d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
-        # Delete illegals
-        if d == 'D' or d == 'd':
-            for f in illegals:
-                remove(f)
-            print('Illegal entries were deleted.')
-            break
-        # List all illegal files
-        elif d == 'L' or d == 'l':
-            print(illegals)
-        elif d == 'Q' or d == 'q':
-            break
-        else:
-            print('Unknown choice "' + d +'"!')
-
-# Clean all empty dirs in src and s_ns
-print('Cleaning empty directories in ' + src + ' and ' + s_ns)
-clean_empty_dirs(src)
-clean_empty_dirs(s_ns)
-exit(0)
+    # Clean all empty dirs in src and s_ns
+    print('Cleaning empty directories in ' + src + ' and ' + s_ns)
+    clean_empty_dirs(src)
+    clean_empty_dirs(s_ns)
+    exit(0)
