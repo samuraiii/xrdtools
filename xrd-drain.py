@@ -2,18 +2,18 @@
 from os import path, readlink, remove, walk
 from re import escape, match, sub
 from subprocess import call
-from sys import argv, exit, stdout
+from sys import argv, exit
 from uuid import uuid4 as uuid
 from hashlib import md5
 try:
     from multiprocessing import Queue, Lock, Pool, cpu_count
     mp = True
 except:
-    print 'No multiprocessing module found, parallel processing disabled.'
+    print('No multiprocessing module found, parallel processing disabled.')
     mp = False
 
 old_args = ''
-if not(len(argv) == 7 or len(argv) == 8):
+if not(len(argv) == 7) and not(len(argv) == 8):
     old_args = '\nYou gave:\n   ' + ' '.join(argv)
     argv[1:] = ['-h']
 
@@ -35,9 +35,9 @@ sync_dirs_only = [ '--include=*/', '--exclude=*' ]
 usermatch = '[a-z][a-z0-9\\\-]+'
 
 if len(argv) == 8:
-    mp_threads = argv[7]
+    mp_threads = int(argv[7])
 elif mp:
-    mp_threads = cpu_count() * 2
+    mp_threads = int(cpu_count() * 2)
 else:
     mp_threads = 1
 
@@ -138,7 +138,7 @@ def migrate( lin, fil, m_transfers, ilock ):
                 remove(lin)
                 remove(fil)
                 with ilock:
-                    print('%s: Done migrating file:  %s' % (m_transfers.rjust(8), lin))
+                    print('Done migrating file %s:  %s' % (m_transfers.rjust(10), lin))
             else:
                 with ilock:
                     # Link failure
@@ -205,7 +205,7 @@ if __name__ == '__main__':
                     else:
                         # Migrate all data
                         with iolock:
-                            stdout.write('%s: Start migrating file: %s\n' % (str(dtransfers).rjust(8), filepath))
+                            print('Start migrating file %s: %s' % (str(dtransfers).rjust(10), filepath))
                         if mp:
                             m_queue.put((filepath, target, str(dtransfers)))
                         else:
