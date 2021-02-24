@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 from os import path, remove, readlink, walk
 from sys import argv, exit
 from subprocess import call
@@ -9,8 +9,8 @@ if __name__ == "__main__":
         old_args = '\nYou gave:\n   ' + ' '.join(argv)
         argv[1:] = ['-h']
 
-    if ( '-h' in argv ) or ( '--help' in argv ):
-        print('All xrootd related deamons should be stopped before running this script!!!')
+    if ('-h' in argv) or ('--help' in argv):
+        print('All xrootd related daemons should be stopped before running this script!!!')
         print('This script is to be used in this way:')
         print(argv[0] + ' /name/space/path' + old_args)
         exit(0)
@@ -23,8 +23,9 @@ if __name__ == "__main__":
         exit(ns + ' should be directory but it is not!')
 
     if (not call(['/usr/bin/pgrep', 'xrootd'])) and (not call(['/usr/bin/pgrep', 'cmsd'])):
-        x = raw_input('All xrootd related deamons should be stopped by now!\nAre you sure you want to continue?\n (Y)es = Possible data loss\n (N)o = Exit\n')
-        if (not x == 'y') and (not x == 'Y') :
+        x = raw_input('All xrootd related deamons should be stopped by now!\n'
+                      'Are you sure you want to continue?\n (Y)es = Possible data loss\n (N)o = Exit\n')
+        if (not x == 'y') and (not x == 'Y'):
             exit(0)
     # Find all valid links
     for root, dirs, files in walk(ns):
@@ -57,7 +58,7 @@ if __name__ == "__main__":
             remove(k)
         del filelist[k]
 
-    #Count all illegals
+    # Count all illegals
     icount = len(illegals)
     if icount > 0:
         d = ''
@@ -78,9 +79,9 @@ if __name__ == "__main__":
             elif d == 'Q' or d == 'q':
                 break
             else:
-                print('Unknown choice "' + d +'"!')
+                print('Unknown choice "' + d + '"!')
 
     # Clean all empty dirs in ns
     print('Cleaning empty directories in ' + ns)
-    call(['/bin/find', ns, '-mindepth', '1', '-type', 'd', '-empty', '-delete' ])
+    call(['/bin/find', ns, '-mindepth', '1', '-type', 'd', '-empty', '-delete'])
     exit(0)

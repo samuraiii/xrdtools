@@ -1,18 +1,24 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
+# vim: set fileencoding=utf-8 :
 from os import path, readlink, remove, walk
 from sys import argv, exit, stdout
 from re import sub, escape, match
 from subprocess import call
 
-def cdnf( cdir ):
-    'This check if parameter is existing dir or it fails script'
+textwidth = 120
+
+
+def cdnf(cdir):
+    """This check if parameter is existing dir or it fails script"""
     if not path.isdir(cdir):
         exit(cdir + ' should be directory but it is not!')
     return
 
-def clean_empty_dirs( d ):
-    'Finds (depth first) all empty dirs and deletes them'
-    call(['/bin/find', d, '-mindepth', '1', '-type', 'd', '-empty', '-delete' ])
+
+def clean_empty_dirs(directory_to_be_cleaned):
+    """Finds (depth first) all empty dirs and deletes them"""
+    call(['/bin/find', directory_to_be_cleaned, '-mindepth', '1', '-type', 'd', '-empty', '-delete'])
+
 
 if __name__ == "__main__":
     old_args = ''
@@ -20,7 +26,7 @@ if __name__ == "__main__":
         old_args = '\nYou gave:\n   ' + ' '.join(argv)
         argv[1:] = ['-h']
 
-    if ( '-h' in argv ) or ( '--help' in argv ):
+    if ('-h' in argv) or ('--help' in argv):
         print('This script is to be used in this way:')
         print(argv[0] + ' /name/space/path /data/path/1 [/data/path/2] ... [/data/path/n]' + old_args)
         exit(0)
@@ -42,8 +48,8 @@ if __name__ == "__main__":
         for filename in files:
             # Create file name
             fpath = path.join(root, filename)
-            if (i % 1000) == 0 :
-                stdout.write('Processing NS entry %d: %s                                                                \r' % (i, fpath))
+            if (i % 1000) == 0:
+                stdout.write(('Processing NS entry %d: %s' % (i, fpath)).ljust(textwidth) + '\r')
                 stdout.flush()
             # Check if it is link
             if path.islink(fpath):
@@ -60,7 +66,7 @@ if __name__ == "__main__":
                     illegals.append(fpath)
             else:
                 illegals.append(fpath)
-    print('\rFound total of %d links.                                                                                                                                ' % i)
+    print('\r' + ('Found total of %d links.' % i).ljust(textwidth))
 
     i = 1
     for d in data:
@@ -68,23 +74,24 @@ if __name__ == "__main__":
             for filename in files:
                 # Create file name
                 fpath = path.join(root, filename)
-                if (i % 100) == 0 :
-                    stdout.write('Processing data entry %d: %s                                                                \r' % (i, fpath))
+                if (i % 100) == 0:
+                    stdout.write(('Processing data entry %d: %s' % (i, fpath)).ljust(textwidth) + '\r')
                     stdout.flush()
                 # Check if file is in NS entries
                 if not (fpath in ns_links):
-                    print('\rRemoving dark data file: ' + fpath + '                                                                \n')
+                    print('\r' + ('Removing dark data file: ' + fpath).ljust(textwidth) + '\n')
                     remove(fpath)
                 i += 1
 
-    #Count all illegals
+    # Count all illegals
     icount = len(illegals)
     if icount > 0:
         d = ''
         # Ask what to do about all illegal files
         # Ignore it with 'q'
         while d != 'q' or d != 'Q':
-            print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?\n\nBeware if you have some file systems unmounted!!!\n' % icount)
+            print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?\n'
+                  '\nBeware if you have some file systems unmounted!!!\n' % icount)
             d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
             # Delete illegals
             if d == 'D' or d == 'd':
@@ -98,11 +105,9 @@ if __name__ == "__main__":
             elif d == 'Q' or d == 'q':
                 break
             else:
-                print('Unknown choice "' + d +'"!')
+                print('Unknown choice "' + d + '"!')
 
-#
-#
-#    # Clean all empty dirs in src and s_ns
+    # Clean all empty dirs in src and s_ns
     print('Cleaning empty directories in data dirs')
     for d in data:
         clean_empty_dirs(d)
