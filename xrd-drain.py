@@ -13,7 +13,7 @@ except:
     mp = False
 
 old_args = ''
-if not(len(argv) == 7):
+if not(len(argv) == 7 or len(argv) == 8):
     old_args = '\nYou gave:\n   ' + ' '.join(argv)
     argv[1:] = ['-h']
 
@@ -37,7 +37,7 @@ usermatch = '[a-z][a-z0-9\\\-]+'
 if len(argv) == 8:
     mp_threads = argv[7]
 elif mp:
-    mp_threads = cpu_count()
+    mp_threads = cpu_count() * 2
 else:
     mp_threads = 1
 
