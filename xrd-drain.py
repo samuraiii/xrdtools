@@ -26,7 +26,7 @@ if ('-h' in argv) or ('--help' in argv):
 
 s_ns = argv[1]
 src = argv[2]
-src_id = md5(src + str(uuid())).hexdigest()
+src_id = md5((src + str(uuid())).encode('utf-8')).hexdigest()
 d_server = argv[3]
 d_ns = argv[4]
 dest = argv[5]
@@ -43,7 +43,7 @@ elif mp:
 else:
     mp_threads = 1
 
-if mp_threads == 1:
+if mp_threads < 2:
     mp = False
 
 if not match(usermatch + ':' + usermatch, fileog):
@@ -144,18 +144,21 @@ def migrate(lin, fil, m_transfers, ilock):
                 remove(lin)
                 remove(fil)
                 with ilock:
-                    print('Done migrating file %s:  %s' % (m_transfers.rjust(10), lin))
+                    print('Done migrating file  %s: %s' % (m_transfers.rjust(10), lin))
             else:
                 with ilock:
                     # Link failure
-                    print('Failed to create link ' + d_server + ':' + d_link + ' or to set permissions!')
+                    print('Failed to create link ' + d_server + ':' + d_link + ' or to set permissions! File: '
+                          + m_transfers.rjust(10) + ': ' + lin)
         else:
             with ilock:
                 # Data failure
-                print('Failed to copy file: ' + fil + ' to: ' + d_server + ':' + d_file)
+                print('Failed to copy file: ' + fil + ' to: ' + d_server + ':' + d_file + '. File: '
+                      + m_transfers.rjust(10) + ': ' + lin)
     else:
         with ilock:
-            print('Failed to create directories: ' + d_filedir + ' and/or ' + d_linkdir)
+            print('Failed to create directories: ' + d_filedir + ' and/or ' + d_linkdir + '. File: '
+                  + m_transfers.rjust(10) + ': ' + lin)
 
 
 def mp_process(mp_queue, mp_iolock):
@@ -182,7 +185,7 @@ if __name__ == '__main__':
         returncode = call(flatten([ssh, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog
                                    + ' ' + f + ' && /bin/rm -f ' + f]))
         if returncode != 0:
-            exit('Writing of testfiles to ' + d_ns + ' and '
+            exit('Writing of test files to ' + d_ns + ' and '
                  + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
 
     if mp:
@@ -207,7 +210,7 @@ if __name__ == '__main__':
                 if not path.isabs(target):
                     # Create absolute link address
                     target = path.abspath(path.join(path.dirname(filepath), target))
-                # Select only likns belonging to src
+                # Select only links belonging to src
                 if match(escape(src), target):
                     if not path.exists(target):
                         # Delete all matching dead links
@@ -239,7 +242,7 @@ if __name__ == '__main__':
         # Ignore it with 'q'
         while d != 'q' or d != 'Q':
             print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
-            d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
+            d = raw_input('(D)elete entries\n(L)ist entries\n(Q)uit and do nothing about it\n')
             # Delete illegals
             if d == 'D' or d == 'd':
                 for f in illegals:
