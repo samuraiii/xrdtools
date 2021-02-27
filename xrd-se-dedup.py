@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+# vim: set fileencoding=utf-8 :
+# Version 1.0.1
 import os
 import sys
 import multiprocessing

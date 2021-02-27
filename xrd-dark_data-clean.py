@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
+# Vesrion 1.0.1
 from os import path, readlink, remove, walk
 from sys import argv, exit, stdout
 from re import sub, escape, match
@@ -92,7 +93,7 @@ if __name__ == "__main__":
         while d != 'q' or d != 'Q':
             print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?\n'
                   '\nBeware if you have some file systems unmounted!!!\n' % icount)
-            d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
+            d = input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
             # Delete illegals
             if d == 'D' or d == 'd':
                 for f in illegals:

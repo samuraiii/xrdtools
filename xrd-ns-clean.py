@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+# vim: set fileencoding=utf-8 :
+# Version 1.0.1
 from os import path, remove, readlink, walk
 from sys import argv, exit
 from subprocess import call
@@ -23,7 +25,7 @@ if __name__ == "__main__":
         exit(ns + ' should be directory but it is not!')
 
     if (not call(['/usr/bin/pgrep', 'xrootd'])) and (not call(['/usr/bin/pgrep', 'cmsd'])):
-        x = raw_input('All xrootd related deamons should be stopped by now!\n'
+        x = input('All xrootd related deamons should be stopped by now!\n'
                       'Are you sure you want to continue?\n (Y)es = Possible data loss\n (N)o = Exit\n')
         if (not x == 'y') and (not x == 'Y'):
             exit(0)
@@ -66,7 +68,7 @@ if __name__ == "__main__":
         # Ignore it with 'q'
         while d != 'q' or d != 'Q':
             print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
-            d = raw_input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
+            d = input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
             # Delete illegals
             if d == 'D' or d == 'd':
                 for f in illegals:

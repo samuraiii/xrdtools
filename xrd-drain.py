@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
+# Version 1.0.1
 from os import path, readlink, remove, walk
 from re import escape, match, sub
 from subprocess import call
@@ -233,6 +234,7 @@ if __name__ == '__main__':
             m_queue.put((None, None, None))
         pool.close()
         pool.join()
+    print('Data migration done')
 
     # Count all illegals
     icount = len(illegals)
@@ -242,7 +244,7 @@ if __name__ == '__main__':
         # Ignore it with 'q'
         while d != 'q' or d != 'Q':
             print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
-            d = raw_input('(D)elete entries\n(L)ist entries\n(Q)uit and do nothing about it\n')
+            d = input('(D)elete entries\n(L)ist entries\n(Q)uit and do nothing about it\n')
             # Delete illegals
             if d == 'D' or d == 'd':
                 for f in illegals:
@@ -261,4 +263,5 @@ if __name__ == '__main__':
     print('Cleaning empty directories in ' + src + ' and ' + s_ns)
     clean_empty_dirs(src)
     clean_empty_dirs(s_ns)
+    print('Migration finished')
     exit(0)
