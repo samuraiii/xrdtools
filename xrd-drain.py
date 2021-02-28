@@ -1,14 +1,16 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.0.1
+# Version 1.1.1
 from os import path, readlink, remove, walk
 from re import escape, match, sub
 from subprocess import call
 from sys import argv, exit
 from uuid import uuid4 as uuid
 from hashlib import md5
+
 try:
-    from multiprocessing import Queue, Lock, Pool, cpu_count
+    from multiprocessing import Queue, Lock, Pool, cpu_count, current_process
+    from time import sleep
     mp = True
 except ModuleNotFoundError:
     print('No multiprocessing module found, parallel processing disabled.')
@@ -37,7 +39,7 @@ illegals = []
 sync_dirs_only = ['--include=*/', '--exclude=*']
 usermatch = r'[a-z][a-z0-9\\\-]+'
 
-if len(argv) == 8:
+if len(argv) == 8 and mp and match(r'^\d+$', str(argv[7])):
     mp_threads = int(argv[7])
 elif mp:
     mp_threads = int(cpu_count() * 2)
@@ -60,10 +62,12 @@ if '@' in list(d_server):
 else:
     user = 'root'
 
-ssh = [
+
+def ssh(socket_id=src_id):
+    return [
         '/usr/bin/ssh',
         '-o', 'ControlMaster=auto',
-        '-o', 'ControlPath=/dev/shm/.xrd-drain-' + src_id + '.socket',
+        '-o', 'ControlPath=/dev/shm/.xrd-drain-' + socket_id + '.socket',
         '-o', 'ControlPersist=1200',
         '-o', 'Compression=no',
         '-x',
@@ -71,7 +75,10 @@ ssh = [
         '-p', port,
         '-l', user
     ]
-sshf = ' ' + ' '.join(ssh) + ' '
+
+
+def sshf(socket_id_f=src_id):
+    return ' '.join(ssh(socket_id_f)) + ' '
 
 
 class noop(object):
@@ -116,13 +123,13 @@ def rds(string):
     return sub('//', '/', string)
 
 
-def rsync(cmd):
+def rsync(cmd, rsocket_name=src_id):
     """Call rsync with given arguments (Pass only options to this function)"""
-    cmd = flatten(['/usr/bin/rsync', '-a', '-e', sshf, cmd])
+    cmd = flatten(['/usr/bin/rsync', '-a', '-e', sshf(rsocket_name), cmd])
     return call(cmd)
 
 
-def migrate(lin, fil, m_transfers, ilock):
+def migrate(lin, fil, m_transfers, ilock, worker_id):
     """""'This migrates data and link to new destination"""
     # Create destination 'addresses'
     d_file = rds(sub(escape(src), dest + '/', fil))
@@ -133,14 +140,22 @@ def migrate(lin, fil, m_transfers, ilock):
     # get all dest dirs up to d_ns and dest
     d_linkdir_members = ' '.join(explode(d_linkdir, d_ns))
     d_filedir_members = ' '.join(explode(d_filedir, dest))
+    if mp:
+        # separate ssh socket for each worker
+        socket_name = src_id + '-' + worker_id
+        # Sleep during first 110% of mp_threads transfers up to ~10 seconds to not to overwhelm the destinations sshd
+        if int(m_transfers) < (mp_threads + (int(mp_threads/10))):
+            sleep(int(m_transfers)/int(mp_threads/10))
+    else:
+        socket_name = src_id
     # create directory structure on destination
-    if call(flatten([ssh, d_server, '/bin/mkdir -p ' + d_filedir + ' ' + d_linkdir])) == 0:
+    if call(flatten([ssh(socket_name), d_server, '/bin/mkdir -p ' + d_filedir + ' ' + d_linkdir])) == 0:
         # Rsync data file
-        if rsync(cmd) == 0:
+        if rsync(cmd, socket_name) == 0:
             # Create link on destination and set owner:group
-            if call(flatten([ssh, d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h '
-                                            + fileog + ' ' + d_link + ' ' + d_filedir_members
-                                            + ' ' + d_linkdir_members])) == 0:
+            if call(flatten([ssh(socket_name), d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h '
+                                                         + fileog + ' ' + d_link + ' ' + d_filedir_members
+                                                         + ' ' + d_linkdir_members])) == 0:
                 # Remove source data
                 remove(lin)
                 remove(fil)
@@ -163,11 +178,12 @@ def migrate(lin, fil, m_transfers, ilock):
 
 
 def mp_process(mp_queue, mp_iolock):
+    worker_id = '{0:0>4}'.format(int(current_process().name.split('-')[1]))
     while True:
         mp_link, mp_file, mp_number = mp_queue.get()
         if mp_link is None or mp_file is None or mp_number is None:
             break
-        migrate(mp_link, mp_file, mp_number, mp_iolock)
+        migrate(mp_link, mp_file, mp_number, mp_iolock, worker_id)
 
 
 def clean_empty_dirs(directory_to_clean):
@@ -183,7 +199,7 @@ if __name__ == '__main__':
     testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359' + src_id
     testfile = [d_ns + testfile, dest + testfile]
     for f in testfile:
-        returncode = call(flatten([ssh, d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog
+        returncode = call(flatten([ssh(), d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog
                                    + ' ' + f + ' && /bin/rm -f ' + f]))
         if returncode != 0:
             exit('Writing of test files to ' + d_ns + ' and '
@@ -223,7 +239,7 @@ if __name__ == '__main__':
                         if mp:
                             m_queue.put((filepath, target, str(dtransfers)))
                         else:
-                            migrate(filepath, target, str(dtransfers), iolock)
+                            migrate(filepath, target, str(dtransfers), iolock, src_id)
                         dtransfers += 1
             else:
                 # Add to illegal files if file is not a link
