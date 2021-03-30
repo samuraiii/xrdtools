@@ -5,8 +5,8 @@ from os import path, readlink, remove, walk
 from re import escape, match, sub
 from subprocess import call
 from sys import argv, exit
-from uuid import uuid4 as uuid
 from hashlib import md5
+from random import random
 
 try:
     from multiprocessing import Queue, Lock, Pool, cpu_count, current_process
@@ -29,7 +29,8 @@ if ('-h' in argv) or ('--help' in argv):
 
 s_ns = argv[1]
 src = argv[2]
-src_id = md5((src + str(uuid())).encode('utf-8')).hexdigest()
+src_id = md5((src + str(random()) + '8ZS8s6tDDLOz+dDZVFTKaZ4mjIH').encode('utf-8')).hexdigest()
+topdown = bool(round(random()))
 d_server = argv[3]
 d_ns = argv[4]
 dest = argv[5]
@@ -130,7 +131,7 @@ def rsync(cmd, rsocket_name=src_id):
 
 
 def migrate(lin, fil, m_transfers, ilock, worker_id):
-    """""'This migrates data and link to new destination"""
+    """This migrates data and link to new destination"""
     # Create destination 'addresses'
     d_file = rds(sub(escape(src), dest + '/', fil))
     d_link = rds(sub(escape(s_ns), d_ns + '/', lin))
@@ -144,8 +145,8 @@ def migrate(lin, fil, m_transfers, ilock, worker_id):
         # separate ssh socket for each worker
         socket_name = src_id + '-' + worker_id
         # Sleep during first 110% of mp_threads transfers up to ~10 seconds to not to overwhelm the destinations sshd
-        if int(m_transfers) < (mp_threads + max((int(mp_threads/10)),1)):
-            sleep(int(m_transfers)/max((int(mp_threads/10), 1)))
+        if int(m_transfers) < (mp_threads + max((round(mp_threads/10)), 1)):
+            sleep(int(m_transfers)/(round(mp_threads/10) + 1))
     else:
         socket_name = src_id
     # create directory structure on destination
@@ -215,32 +216,37 @@ if __name__ == '__main__':
         pool = None
         iolock = noop()
     # Find all valid links and corresponding files
-    for root, dirs, files in walk(s_ns, topdown=False):
+    for root, dirs, files in walk(s_ns, topdown=topdown):
         for filename in files:
             # Create file name
             filepath = path.join(root, filename)
             # Check if it is link
             if path.islink(filepath):
                 # Get link target
-                target = readlink(filepath)
-                # Check if link address is absolute
-                if not path.isabs(target):
-                    # Create absolute link address
-                    target = path.abspath(path.join(path.dirname(filepath), target))
-                # Select only links belonging to src
-                if match(escape(src), target):
-                    if not path.exists(target):
-                        # Delete all matching dead links
-                        remove(filepath)
-                    else:
-                        # Migrate all data
-                        with iolock:
-                            print('Start migrating file %s: %s' % (str(dtransfers).rjust(10), filepath))
-                        if mp:
-                            m_queue.put((filepath, target, str(dtransfers)))
+                try:
+                    target = readlink(filepath)
+                except FileNotFoundError:
+                    print('Error file %s: Link %s not found.' % (str(dtransfer).rjust(10), path))
+                    target = None
+                if target is not None:
+                    # Check if link address is absolute
+                    if not path.isabs(target):
+                        # Create absolute link address
+                        target = path.abspath(path.join(path.dirname(filepath), target))
+                    # Select only links belonging to src
+                    if match(escape(src), target):
+                        if not path.exists(target):
+                            # Delete all matching dead links
+                            remove(filepath)
                         else:
-                            migrate(filepath, target, str(dtransfers), iolock, src_id)
-                        dtransfers += 1
+                            # Migrate all data
+                            with iolock:
+                                print('Start migrating file %s: %s' % (str(dtransfers).rjust(10), filepath))
+                            if mp:
+                                m_queue.put((filepath, target, str(dtransfers)))
+                            else:
+                                migrate(filepath, target, str(dtransfers), iolock, src_id)
+                            dtransfers += 1
             else:
                 # Add to illegal files if file is not a link
                 illegals.append(filepath)
