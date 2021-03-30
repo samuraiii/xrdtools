@@ -144,8 +144,8 @@ def migrate(lin, fil, m_transfers, ilock, worker_id):
         # separate ssh socket for each worker
         socket_name = src_id + '-' + worker_id
         # Sleep during first 110% of mp_threads transfers up to ~10 seconds to not to overwhelm the destinations sshd
-        if int(m_transfers) < (mp_threads + (int(mp_threads/10))):
-            sleep(int(m_transfers)/int(mp_threads/10))
+        if int(m_transfers) < (mp_threads + max((int(mp_threads/10)),1)):
+            sleep(int(m_transfers)/max((int(mp_threads/10), 1)))
     else:
         socket_name = src_id
     # create directory structure on destination
