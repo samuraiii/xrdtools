@@ -18,13 +18,15 @@ except ModuleNotFoundError:
 
 old_args = ''
 if not(len(argv) == 7) and not(len(argv) == 8):
-    old_args = '\nYou gave:\n   ' + ' '.join(argv)
+    old_args = 'You gave:\n   ' + ' '.join(argv)
     argv[1:] = ['-h']
 
 if ('-h' in argv) or ('--help' in argv):
     print('This script is to be used in this way:')
     print(argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port]'
-                    ' /destination/name/space/path /destination/path user:group [number of threads]' + old_args)
+                    ' /destination/name/space/path /destination/path user:group [number of threads]')
+    print('\tScript will perform the local move when the destination host is "localhost".')
+    print(old_args)
     exit(0)
 
 s_ns = argv[1]
@@ -63,6 +65,11 @@ if '@' in list(d_server):
 else:
     user = 'root'
 
+if d_server == 'localhost':
+    local_move = True
+else:
+    local_move = False
+
 
 def ssh(socket_id=src_id):
     return [
@@ -95,7 +102,7 @@ class noop(object):
 
 
 def cdnf(cdir):
-    """This check if parameter is existing dir or it fails script"""
+    """This checks if parameter is existing dir, or it fails script"""
     if not path.isdir(cdir):
         exit(cdir + ' should be directory but it is not!')
     return
@@ -126,7 +133,10 @@ def rds(string):
 
 def rsync(cmd, rsocket_name=src_id):
     """Call rsync with given arguments (Pass only options to this function)"""
-    cmd = flatten(['/usr/bin/rsync', '-a', '-e', sshf(rsocket_name), cmd])
+    if local_move:
+        cmd = flatten(['/usr/bin/rsync', '-a', cmd])
+    else:
+        cmd = flatten(['/usr/bin/rsync', '-a', '-e', sshf(rsocket_name), cmd])
     return call(cmd)
 
 
@@ -135,7 +145,10 @@ def migrate(lin, fil, m_transfers, ilock, worker_id):
     # Create destination 'addresses'
     d_file = rds(sub(escape(src), dest + '/', fil))
     d_link = rds(sub(escape(s_ns), d_ns + '/', lin))
-    cmd = [rds(fil), rds(d_server + ':/' + d_file)]
+    if local_move:
+        cmd = [rds(fil), rds('/' + d_file)]
+    else:
+        cmd = [rds(fil), rds(d_server + ':/' + d_file)]
     d_filedir = path.dirname(d_file)
     d_linkdir = path.dirname(d_link)
     # get all dest dirs up to d_ns and dest
@@ -144,21 +157,32 @@ def migrate(lin, fil, m_transfers, ilock, worker_id):
     if mp:
         # separate ssh socket for each worker
         socket_name = src_id + '-' + worker_id
-        # Sleep during first 110% of mp_threads transfers up to ~10 seconds to not to overwhelm the destinations sshd
+        # Sleep during first 110% of mp_threads transfers up to ~10 seconds not to overwhelm the destinations sshd
         if int(m_transfers) < (mp_threads + max((round(mp_threads/10)), 1)):
             sleep(int(m_transfers)/(round(mp_threads/10) + 1))
     else:
         socket_name = src_id
     # create directory structure on destination
-    if call(flatten([ssh(socket_name), d_server, '/bin/mkdir -p ' + d_filedir + ' ' + d_linkdir])) == 0:
+    if local_move:
+        create_dir = ['/bin/mkdir', '-p', 'd_filedir']
+    else:
+        create_dir = flatten([ssh(socket_name), d_server, '/bin/mkdir -p ' + d_filedir + ' ' + d_linkdir])
+    if call(create_dir) == 0:
         # Rsync data file
         if rsync(cmd, socket_name) == 0:
             # Create link on destination and set owner:group
-            if call(flatten([ssh(socket_name), d_server, '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h '
-                                                         + fileog + ' ' + d_link + ' ' + d_filedir_members
-                                                         + ' ' + d_linkdir_members])) == 0:
+            link_cmd = '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h ' + fileog + ' ' + d_link + ' ' + \
+                       d_filedir_members + ' ' + d_linkdir_members
+            if local_move:
+                create_link = ['/bin/sh', '-c', link_cmd]
+            else:
+                create_link = flatten([ssh(socket_name), d_server, '/bin/ln -sf ' + d_file + ' ' + d_link +
+                                       ' && /bin/chown -h ' + fileog + ' ' + d_link + ' ' + d_filedir_members +
+                                       ' ' + d_linkdir_members])
+            if call(create_link) == 0:
                 # Remove source data
-                remove(lin)
+                if not local_move:
+                    remove(lin)
                 remove(fil)
                 with ilock:
                     print('Done migrating file  %s: %s' % (m_transfers.rjust(10), lin))
@@ -200,14 +224,18 @@ if __name__ == '__main__':
     testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359' + src_id
     testfile = [d_ns + testfile, dest + testfile]
     for f in testfile:
-        returncode = call(flatten([ssh(), d_server, '/bin/touch ' + f + ' && /bin/chown ' + fileog
-                                   + ' ' + f + ' && /bin/rm -f ' + f]))
+        check_command = '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f
+        if local_move:
+            check = ['/bin/sh', '-c', check_command]
+        else:
+            check = flatten([ssh(), d_server, check_command])
+        returncode = call(check)
         if returncode != 0:
             exit('Writing of test files to ' + d_ns + ' and '
                  + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
 
     if mp:
-        # Setup the multiprocess pool and queue
+        # Set up the multiprocess pool and queue
         m_queue = Queue(maxsize=mp_threads)
         iolock = Lock()
         pool = Pool(mp_threads, initializer=mp_process, initargs=(m_queue, iolock))
@@ -226,7 +254,7 @@ if __name__ == '__main__':
                 try:
                     target = readlink(filepath)
                 except FileNotFoundError:
-                    print('Error file %s: Link %s not found.' % (str(dtransfer).rjust(10), path))
+                    print('Error file %s: Link %s not found.' % (str(dtransfers).rjust(10), path))
                     target = None
                 if target is not None:
                     # Check if link address is absolute
@@ -270,7 +298,10 @@ if __name__ == '__main__':
             # Delete illegals
             if d == 'D' or d == 'd':
                 for f in illegals:
-                    remove(f)
+                    try:
+                        remove(f)
+                    except FileNotFoundError:
+                        pass
                 print('Illegal entries were deleted.')
                 break
             # List all illegal files
