@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Vesrion 1.0.1
+# Version 1.1.0
 from os import path, readlink, remove, walk
 from sys import argv, exit, stdout
 from re import sub, escape, match
@@ -34,8 +34,8 @@ if __name__ == "__main__":
 
     ns = argv[1]
     data = argv[2:]
-    ns_links = []
-    illegals = []
+    ns_links = set()
+    illegals = set()
     i = 1
     # Check if name space and source are dirs
     cdnf(ns)
@@ -61,12 +61,12 @@ if __name__ == "__main__":
                     # Create absolute link address
                     target = path.abspath(path.join(path.dirname(target), target))
                 if path.isfile(target):
-                    ns_links.append(target)
+                    ns_links.add(target)
                     i += 1
                 else:
-                    illegals.append(fpath)
+                    illegals.add(fpath)
             else:
-                illegals.append(fpath)
+                illegals.add(fpath)
     print('\r' + ('Found total of %d links.' % i).ljust(textwidth))
 
     i = 1
