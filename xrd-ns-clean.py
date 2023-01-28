@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.0.1
+# Version 1.1.0
 from os import path, remove, readlink, walk
 from sys import argv, exit
 from subprocess import call
@@ -18,7 +18,7 @@ if __name__ == "__main__":
         exit(0)
 
     ns = argv[1]
-    illegals = []
+    illegals = set()
     filelist = {}
 
     if not path.isdir(ns):
@@ -47,10 +47,10 @@ if __name__ == "__main__":
                     print('Removing dead link: ' + fpath)
                     remove(fpath)
                 else:
-                    filelist.setdefault(target, []).append(fpath)
+                    filelist.setdefault(target, set()).add(fpath)
             else:
                 # Add to illegal files if file is not a link
-                illegals.append(fpath)
+                illegals.add(fpath)
 
     # remove double linked files
     for k in filelist.keys():
