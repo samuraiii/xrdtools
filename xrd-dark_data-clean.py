@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.1.0
+# Version 1.1.1
 from os import path, readlink, remove, walk
 from sys import argv, exit, stdout
 from re import sub, escape, match

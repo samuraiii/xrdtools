@@ -68,6 +68,11 @@ def create_ns_entry(r_server, r_link):
     return sub(nspath, '', r_link)
 
 
+def rm(rport, ruser, rserver, rlink):
+    call(['/usr/bin/ssh', '-p', rport, '-l', ruser, rserver, '/bin/rm -f $(/bin/readlink '
+            + rlink + ') ' + rlink])
+
+
 if __name__ == "__main__":
     link_list = {}
     servers = {}
@@ -135,20 +140,21 @@ if __name__ == "__main__":
         for k in link_list.keys():
             exists = False
             for i in link_list[k]:
+                delete = False
                 server, link = i
                 user = servers[server]['user']
                 port = servers[server]['port']
                 if call(['/usr/bin/ssh', '-p', port, '-l', user, server, '/usr/bin/test -f $(/bin/readlink '
                                                                          + link + ')']) == 0:
                     if exists:
-                        call(['/usr/bin/ssh', '-p', port, '-l', user, server, '/bin/rm -f $(/bin/readlink '
-                              + link + ') ' + link])
-                        deleted += 1
+                        delete = True
                     else:
                         exists = True
                 else:
-                    call(['/usr/bin/ssh', '-p', port, '-l', user, server, '/bin/rm -f $(/bin/readlink '
-                          + link + ') ' + link])
+                    delete = True
+
+                if delete:
+                    rm(port, user, server, link)
                     deleted += 1
 
         print('Cleanup removed {0} duplicate entries.'.format(deleted))
