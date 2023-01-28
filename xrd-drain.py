@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.1.1
+# Version 1.2.0
 from os import path, readlink, remove, walk
 from re import escape, match, sub
 from subprocess import call
@@ -38,7 +38,7 @@ d_ns = argv[4]
 dest = argv[5]
 fileog = argv[6]
 dtransfers = 1
-illegals = []
+illegals = set()
 sync_dirs_only = ['--include=*/', '--exclude=*']
 usermatch = r'[a-z][a-z0-9\\\-]+'
 
@@ -277,7 +277,7 @@ if __name__ == '__main__':
                             dtransfers += 1
             else:
                 # Add to illegal files if file is not a link
-                illegals.append(filepath)
+                illegals.add(filepath)
     if mp:
         # Finish and close queues
         for _ in range(mp_threads):
