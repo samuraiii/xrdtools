@@ -1,250 +1,276 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.2.0
+'''
+Version 1.3.0
+Migrates XRootD storage to different location
+Conforms to the ALICE exepriment storage layout
+Tested on CentOS 7.
+'''
 from os import path, readlink, remove, walk
 from re import escape, match, sub
 from subprocess import call
-from sys import argv, exit
+from sys import argv, exit  # pylint: disable=redefined-builtin
 from hashlib import md5
 from random import random
 
 try:
     from multiprocessing import Queue, Lock, Pool, cpu_count, current_process
     from time import sleep
-    mp = True
+    MULTI_THREAD = True
 except ModuleNotFoundError:
     print('No multiprocessing module found, parallel processing disabled.')
-    mp = False
+    MULTI_THREAD = False
 
-old_args = ''
-if not(len(argv) == 7) and not(len(argv) == 8):
-    old_args = 'You gave:\n   ' + ' '.join(argv)
+OLD_ARGS = ''
+if len(argv) != 7 and len(argv) != 8:
+    OLD_ARGS = 'You gave:\n   ' + ' '.join(argv)
     argv[1:] = ['-h']
 
 if ('-h' in argv) or ('--help' in argv):
     print('This script is to be used in this way:')
-    print(argv[0] + ' /source/name/space/path /source/path [user@]destination.server[:port]'
-                    ' /destination/name/space/path /destination/path user:group [number of threads]')
+    print(f'{argv[0]} /source/name/space/path /source/path [user@]destination.server[:port] \
+         /destination/name/space/path /destination/path user:group [number of threads]')
     print('\tScript will perform the local move when the destination host is "localhost".')
-    print(old_args)
+    print(OLD_ARGS)
     exit(0)
 
-s_ns = argv[1]
-src = argv[2]
-src_id = md5((src + str(random()) + '8ZS8s6tDDLOz+dDZVFTKaZ4mjIH').encode('utf-8')).hexdigest()
-topdown = bool(round(random()))
-d_server = argv[3]
-d_ns = argv[4]
-dest = argv[5]
-fileog = argv[6]
-dtransfers = 1
-illegals = set()
-sync_dirs_only = ['--include=*/', '--exclude=*']
-usermatch = r'[a-z][a-z0-9\\\-]+'
+SOURCE_NAME_SPACE = argv[1]
+SOURCE_DATA = argv[2]
+SOURCE_ID = md5(
+    f'{SOURCE_DATA}{str(random())}8ZS8s6tDDLOz+dDZVFTKaZ4mjIH'.encode('utf-8')
+    ).hexdigest()
+TOPDOWN = bool(round(random()))
+DESTINATION_SERVER = argv[3]
+DESTINATION_NAME_SPACE = argv[4]
+DESTINATION_DATA = argv[5]
+FILE_OWNER_AND_GROUP = argv[6]
+TRANSFER_COUNT = 1
+ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE = set()
+SNYC_DIRECTORIES_ONLY = ['--include=*/', '--exclude=*']
 
-if len(argv) == 8 and mp and match(r'^\d+$', str(argv[7])):
-    mp_threads = int(argv[7])
-elif mp:
-    mp_threads = int(cpu_count() * 2)
+if len(argv) == 8 and MULTI_THREAD and match(r'^\d+$', str(argv[7])):
+    MULTIPROCESS_THREADS = int(argv[7])
+elif MULTI_THREAD:
+    MULTIPROCESS_THREADS = int(cpu_count() * 2)
 else:
-    mp_threads = 1
+    MULTIPROCESS_THREADS = 1
 
-if mp_threads < 2:
-    mp = False
+if MULTIPROCESS_THREADS < 2:
+    MULTI_THREAD = False
 
-if not match(usermatch + ':' + usermatch, fileog):
-    exit(fileog + ' is not a valid user:group definition.')
+if not match(r'[a-z][a-z0-9\\\-]+:[a-z][a-z0-9\\\-]+', FILE_OWNER_AND_GROUP):
+    exit(f'{FILE_OWNER_AND_GROUP} is not a valid user:group definition.')
 
-if ':' in list(d_server):
-    d_server, port = d_server.split(':')
+if ':' in list(DESTINATION_SERVER):
+    DESTINATION_SERVER, DESTIANTION_PORT = DESTINATION_SERVER.split(':')
 else:
-    port = '22'
+    DESTIANTION_PORT = '22'
 
-if '@' in list(d_server):
-    user, d_server = d_server.split('@')
+if '@' in list(DESTINATION_SERVER):
+    DESTINATION_SERVER_USER, DESTINATION_SERVER = DESTINATION_SERVER.split('@')
 else:
-    user = 'root'
+    DESTINATION_SERVER_USER = 'root'
 
-if d_server == 'localhost':
-    local_move = True
-else:
-    local_move = False
+LOCAL_MOVE = bool(DESTINATION_SERVER == 'localhost')
 
 
-def ssh(socket_id=src_id):
+def ssh_connection(socket_id=SOURCE_ID):
+    '''ssh connection deatails'''
     return [
         '/usr/bin/ssh',
         '-o', 'ControlMaster=auto',
-        '-o', 'ControlPath=/dev/shm/.xrd-drain-' + socket_id + '.socket',
+        '-o', f'ControlPath=/dev/shm/.xrd-drain-{socket_id}.socket',
         '-o', 'ControlPersist=1200',
         '-o', 'Compression=no',
         '-x',
         '-T',
-        '-p', port,
-        '-l', user
+        '-p', DESTIANTION_PORT,
+        '-l', DESTINATION_SERVER_USER
     ]
 
 
-def sshf(socket_id_f=src_id):
-    return ' '.join(ssh(socket_id_f)) + ' '
+def ssh_connection_formated(socket_id_f=SOURCE_ID):
+    '''Foramted ssh connection'''
+    return f"{' '.join(ssh_connection(socket_id_f))} "
 
 
-class noop(object):
-    """Does nothing by design"""
-    def __init__(*args):
+class Noop():
+    '''/dev/null function'''
+    def __init__(self, *args):
         pass
 
-    def __enter__(*args):
+    def __enter__(self,*args):
         pass
 
-    def __exit__(*args):
+    def __exit__(self,*args):
         pass
 
-
-def cdnf(cdir):
-    """This checks if parameter is existing dir, or it fails script"""
-    if not path.isdir(cdir):
-        exit(cdir + ' should be directory but it is not!')
-    return
+def check_if_directory_exists(check_directory):
+    '''This checks if parameter is existing dir, or it fails script'''
+    if not path.isdir(check_directory):
+        exit(f'{check_directory} should be directory but it is not!')
 
 
-def flatten(s):
-    """Flattens list recursively"""
-    if s == []:
-        return s
-    if isinstance(s[0], list):
-        return flatten(s[0]) + flatten(s[1:])
-    return s[:1] + flatten(s[1:])
+def flatten(list_to_flatten):
+    '''Flattens list recursively'''
+    if list_to_flatten == []:
+        return list_to_flatten
+    if isinstance(list_to_flatten[0], list):
+        return flatten(list_to_flatten[0]) + flatten(list_to_flatten[1:])
+    return list_to_flatten[:1] + flatten(list_to_flatten[1:])
 
 
-def explode(filestring, start='/'):
-    """Returns all dirs on a way from "start" to last dir (like in dirname)"""
+def explode_path(filestring, start='/'):
+    '''Returns all dirs on a way from "start" to last dir (like in dirname)'''
     members = []
-    while not match(start + '/*$', filestring + '/'):
+    while not match(f'{start}/*$', f'{filestring}/'):
         members.append(filestring)
         filestring = path.dirname(filestring)
     return members
 
 
-def rds(string):
-    """Removes // from string"""
+def remove_double_slashes(string):
+    '''Removes // from string'''
     return sub('//', '/', string)
 
 
-def rsync(cmd, rsocket_name=src_id):
-    """Call rsync with given arguments (Pass only options to this function)"""
-    if local_move:
-        cmd = flatten(['/usr/bin/rsync', '-a', cmd])
+def rsync(command, rsocket_name=SOURCE_ID):
+    '''Call rsync with given arguments (Pass only options to this function)'''
+    if LOCAL_MOVE:
+        command = flatten(['/usr/bin/rsync', '-a', command])
     else:
-        cmd = flatten(['/usr/bin/rsync', '-a', '-e', sshf(rsocket_name), cmd])
-    return call(cmd)
+        command = flatten(['/usr/bin/rsync', '-a', '-e', \
+            ssh_connection_formated(rsocket_name), command])
+    return call(command)
 
 
-def migrate(lin, fil, m_transfers, ilock, worker_id):
-    """This migrates data and link to new destination"""
+def migrate(   # pylint: disable=too-many-branches,too-many-locals
+    source_link,
+    source_file,
+    multi_thread_tranfers,
+    migration_iolock,
+    worker_id):
+    '''This migrates data and link to new destination'''
     # Create destination 'addresses'
-    d_file = rds(sub(escape(src), dest + '/', fil))
-    d_link = rds(sub(escape(s_ns), d_ns + '/', lin))
-    if local_move:
-        cmd = [rds(fil), rds('/' + d_file)]
+    destination_file = remove_double_slashes(
+        sub(escape(SOURCE_DATA), f'{DESTINATION_DATA}/', source_file))
+    destination_link = remove_double_slashes(
+        sub(escape(SOURCE_NAME_SPACE), f'{DESTINATION_NAME_SPACE}/', source_link))
+    if LOCAL_MOVE:
+        rsync_command = [remove_double_slashes(source_file), \
+            remove_double_slashes(f'/{destination_file}')]
     else:
-        cmd = [rds(fil), rds(d_server + ':/' + d_file)]
-    d_filedir = path.dirname(d_file)
-    d_linkdir = path.dirname(d_link)
+        rsync_command = [remove_double_slashes(source_file), \
+            remove_double_slashes(f'{DESTINATION_SERVER}:/{destination_file}')]
+    destination_file_directory = path.dirname(destination_file)
+    destination_link_directory = path.dirname(destination_link)
     # get all dest dirs up to d_ns and dest
-    d_linkdir_members = ' '.join(explode(d_linkdir, d_ns))
-    d_filedir_members = ' '.join(explode(d_filedir, dest))
-    if mp:
+    destination_link_directory_members = ' '.join(
+        explode_path(destination_link_directory, DESTINATION_NAME_SPACE))
+    destination_file_directory_members = ' '.join(
+        explode_path(destination_file_directory, DESTINATION_DATA))
+    if MULTI_THREAD:
         # separate ssh socket for each worker
-        socket_name = src_id + '-' + worker_id
-        # Sleep during first 110% of mp_threads transfers up to ~10 seconds not to overwhelm the destinations sshd
-        if int(m_transfers) < (mp_threads + max((round(mp_threads/10)), 1)):
-            sleep(int(m_transfers)/(round(mp_threads/10) + 1))
+        socket_name = f'{SOURCE_ID}-{worker_id}'
+        # Sleep during first 110% of mp_threads transfers up
+        # to ~10 seconds not to overwhelm the destinations sshd
+        if int(multi_thread_tranfers) \
+            < (MULTIPROCESS_THREADS + max((round(MULTIPROCESS_THREADS/10)), 1)):
+            sleep(int(multi_thread_tranfers)/(round(MULTIPROCESS_THREADS/10) + 1))
     else:
-        socket_name = src_id
+        socket_name = SOURCE_ID
     # create directory structure on destination
-    if local_move:
+    if LOCAL_MOVE:
         create_dir = ['/bin/mkdir', '-p', 'd_filedir']
     else:
-        create_dir = flatten([ssh(socket_name), d_server, '/bin/mkdir -p ' + d_filedir + ' ' + d_linkdir])
+        create_dir = flatten([ssh_connection(socket_name), DESTINATION_SERVER, \
+            f'/bin/mkdir -p {destination_file_directory} {destination_link_directory}'])
     if call(create_dir) == 0:
         # Rsync data file
-        if rsync(cmd, socket_name) == 0:
+        if rsync(rsync_command, socket_name) == 0:
             # Create link on destination and set owner:group
-            link_cmd = '/bin/ln -sf ' + d_file + ' ' + d_link + ' && /bin/chown -h ' + fileog + ' ' + d_link + ' ' + \
-                       d_filedir_members + ' ' + d_linkdir_members
-            if local_move:
+            link_cmd = f'/bin/ln -sf {destination_file} {destination_link} && \
+                /bin/chown -h {FILE_OWNER_AND_GROUP} {destination_link} \
+                    {destination_file_directory_members}  {destination_link_directory_members}'
+            if LOCAL_MOVE:
                 create_link = ['/bin/sh', '-c', link_cmd]
             else:
-                create_link = flatten([ssh(socket_name), d_server, '/bin/ln -sf ' + d_file + ' ' + d_link +
-                                       ' && /bin/chown -h ' + fileog + ' ' + d_link + ' ' + d_filedir_members +
-                                       ' ' + d_linkdir_members])
+                create_link = flatten([ssh_connection(socket_name), DESTINATION_SERVER, \
+                    f'/bin/ln -sf {destination_file} {destination_link} \
+                    && /bin/chown -h {FILE_OWNER_AND_GROUP} {destination_link} \
+                    {destination_file_directory_members} {destination_link_directory_members}'])
             if call(create_link) == 0:
                 # Remove source data
-                if not local_move:
-                    remove(lin)
-                remove(fil)
-                with ilock:
-                    print('Done migrating file  %s: %s' % (m_transfers.rjust(10), lin))
+                if not LOCAL_MOVE:
+                    remove(source_link)
+                remove(source_file)
+                with migration_iolock:
+                    print(f'Done migrating file  {multi_thread_tranfers.rjust(10)}: {source_link}')
             else:
-                with ilock:
+                with migration_iolock:
                     # Link failure
-                    print('Failed to create link ' + d_server + ':' + d_link + ' or to set permissions! File: '
-                          + m_transfers.rjust(10) + ': ' + lin)
+                    print(f'Failed to create link {DESTINATION_SERVER}:{destination_link} or \
+                        to set permissions! File: {multi_thread_tranfers.rjust(10)}: {source_link}')
         else:
-            with ilock:
+            with migration_iolock:
                 # Data failure
-                print('Failed to copy file: ' + fil + ' to: ' + d_server + ':' + d_file + '. File: '
-                      + m_transfers.rjust(10) + ': ' + lin)
+                print(f'Failed to copy file: {source_file} to: \
+                    {DESTINATION_SERVER}:{destination_file}. File: \
+                    {multi_thread_tranfers.rjust(10)}: {source_link}')
     else:
-        with ilock:
-            print('Failed to create directories: ' + d_filedir + ' and/or ' + d_linkdir + '. File: '
-                  + m_transfers.rjust(10) + ': ' + lin)
+        with migration_iolock:
+            print(f'Failed to create directories: {destination_file_directory} \
+                and/or {destination_link_directory}. \
+                File: {multi_thread_tranfers.rjust(10)}: {source_link}')
 
 
-def mp_process(mp_queue, mp_iolock):
-    worker_id = '{0:0>4}'.format(int(current_process().name.split('-')[1]))
+def multithreaded_processing(multithread_queue, multithread_iolock):
+    '''Multithreaded processing'''
+    worker_id = f"{int(current_process().name.split('-')[1]):0>4}"
     while True:
-        mp_link, mp_file, mp_number = mp_queue.get()
-        if mp_link is None or mp_file is None or mp_number is None:
+        multithreaded_link, multithreaded_file, multithreaded_number = multithread_queue.get()
+        if None in [multithreaded_link, multithreaded_file, multithreaded_number]:
             break
-        migrate(mp_link, mp_file, mp_number, mp_iolock, worker_id)
+        migrate(multithreaded_link, multithreaded_file, \
+            multithreaded_number, multithread_iolock, worker_id)
 
 
 def clean_empty_dirs(directory_to_clean):
-    """Finds (depth first) all empty dirs and deletes them"""
+    '''Finds (depth first) all empty dirs and deletes them'''
     call(['/bin/find', directory_to_clean, '-mindepth', '1', '-type', 'd', '-empty', '-delete'])
 
 
 if __name__ == '__main__':
     # Check if name space and source are dirs
-    cdnf(s_ns)
-    cdnf(src)
+    check_if_directory_exists(SOURCE_NAME_SPACE)
+    check_if_directory_exists(SOURCE_DATA)
 
-    testfile = '/.xrd-drain-testfile_55c4e792761ddeb2dca627ffadca546f82359' + src_id
-    testfile = [d_ns + testfile, dest + testfile]
-    for f in testfile:
-        check_command = '/bin/touch ' + f + ' && /bin/chown ' + fileog + ' ' + f + ' && /bin/rm -f ' + f
-        if local_move:
+    TEST_FILE = f'/.xrd-drain-testfile_55c4e792761ddeb2dc{SOURCE_ID}'
+    TEST_FILE = [f'{DESTINATION_NAME_SPACE}{TEST_FILE}', f'{DESTINATION_DATA}{TEST_FILE}']
+    for test_destination in TEST_FILE:
+        check_command = f'/bin/touch {test_destination} && /bin/chown {FILE_OWNER_AND_GROUP} \
+            {test_destination} && /bin/rm -f {test_destination}'
+        if LOCAL_MOVE:
             check = ['/bin/sh', '-c', check_command]
         else:
-            check = flatten([ssh(), d_server, check_command])
-        returncode = call(check)
-        if returncode != 0:
-            exit('Writing of test files to ' + d_ns + ' and '
-                 + dest + ' failed!\n Is ' + fileog + ' defined on ' + d_server + '?')
+            check = flatten([ssh_connection(), DESTINATION_SERVER, check_command])
+        RETURN_CODE = call(check)
+        if RETURN_CODE != 0:
+            exit(f'Writing of test files to {DESTINATION_NAME_SPACE} and {DESTINATION_DATA} \
+                failed!\n Is {FILE_OWNER_AND_GROUP} defined on {DESTINATION_SERVER}?')
 
-    if mp:
+    if MULTI_THREAD:
         # Set up the multiprocess pool and queue
-        m_queue = Queue(maxsize=mp_threads)
-        iolock = Lock()
-        pool = Pool(mp_threads, initializer=mp_process, initargs=(m_queue, iolock))
+        MULTITHREAD_QUEUE = Queue(maxsize=MULTIPROCESS_THREADS)
+        IOLOCK = Lock()
+        POOL = Pool(MULTIPROCESS_THREADS, initializer=multithreaded_processing, \
+            initargs=(MULTITHREAD_QUEUE, IOLOCK))  # pylint: disable=consider-using-with
     else:
-        m_queue = None
-        pool = None
-        iolock = noop()
+        MULTITHREAD_QUEUE = None
+        POOL = None
+        IOLOCK = Noop()
     # Find all valid links and corresponding files
-    for root, dirs, files in walk(s_ns, topdown=topdown):
+    for root, dirs, files in walk(SOURCE_NAME_SPACE, topdown=TOPDOWN):
         for filename in files:
             # Create file name
             filepath = path.join(root, filename)
@@ -252,69 +278,76 @@ if __name__ == '__main__':
             if path.islink(filepath):
                 # Get link target
                 try:
-                    target = readlink(filepath)
+                    LINK_TARGET = readlink(filepath)
                 except FileNotFoundError:
-                    print('Error file %s: Link %s not found.' % (str(dtransfers).rjust(10), path))
-                    target = None
-                if target is not None:
+                    print(f'Error file {str(TRANSFER_COUNT).rjust(10)}: Link {path} not found.')
+                    LINK_TARGET = None
+                if LINK_TARGET is not None:
                     # Check if link address is absolute
-                    if not path.isabs(target):
+                    if not path.isabs(LINK_TARGET):
                         # Create absolute link address
-                        target = path.abspath(path.join(path.dirname(filepath), target))
+                        LINK_TARGET = path.abspath(path.join(path.dirname(filepath), LINK_TARGET))
                     # Select only links belonging to src
-                    if match(escape(src), target):
-                        if not path.exists(target):
+                    if match(escape(SOURCE_DATA), LINK_TARGET):
+                        if not path.exists(LINK_TARGET):
                             # Delete all matching dead links
                             remove(filepath)
                         else:
                             # Migrate all data
-                            with iolock:
-                                print('Start migrating file %s: %s' % (str(dtransfers).rjust(10), filepath))
-                            if mp:
-                                m_queue.put((filepath, target, str(dtransfers)))
+                            with IOLOCK:
+                                print(f'Start migrating file {str(TRANSFER_COUNT).rjust(10)}: \
+                                    {filepath}')
+                            if MULTI_THREAD:
+                                MULTITHREAD_QUEUE.put((filepath, LINK_TARGET, str(TRANSFER_COUNT)))
                             else:
-                                migrate(filepath, target, str(dtransfers), iolock, src_id)
-                            dtransfers += 1
+                                migrate(filepath, LINK_TARGET, str(TRANSFER_COUNT), \
+                                    IOLOCK, SOURCE_ID)
+                            TRANSFER_COUNT += 1
             else:
                 # Add to illegal files if file is not a link
-                illegals.add(filepath)
-    if mp:
+                ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE.add(filepath)
+    if MULTI_THREAD:
         # Finish and close queues
-        for _ in range(mp_threads):
-            m_queue.put((None, None, None))
-        pool.close()
-        pool.join()
+        for _ in range(MULTIPROCESS_THREADS):
+            MULTITHREAD_QUEUE.put((None, None, None))
+        POOL.close()
+        POOL.join()
     print('Data migration done')
 
     # Count all illegals
-    icount = len(illegals)
-    if icount > 0:
-        d = ''
+    ILLEGALS_COUNT = len(ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE)
+    if ILLEGALS_COUNT > 0:
+        USER_ACTION = ''
+        USER_DECIDED = False
         # Ask what to do about all illegal files
         # Ignore it with 'q'
-        while d != 'q' or d != 'Q':
-            print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?' % icount)
-            d = input('(D)elete entries\n(L)ist entries\n(Q)uit and do nothing about it\n')
+        while USER_ACTION not in {'q', 'Q'}:
+            print(f'Found {ILLEGALS_COUNT} illegal (not links) entries in namespace.')
+            print('What would you like to do about it?')
+            USER_ACTION = input('(D)elete entries\n(L)ist entries\
+                \n(Q)uit and do nothing about it\n')
             # Delete illegals
-            if d == 'D' or d == 'd':
-                for f in illegals:
+            if USER_ACTION in {'D', 'd'}:
+                for test_destination in ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE:
                     try:
-                        remove(f)
+                        remove(test_destination)
                     except FileNotFoundError:
                         pass
                 print('Illegal entries were deleted.')
-                break
+                USER_DECIDED = True
             # List all illegal files
-            elif d == 'L' or d == 'l':
-                print(illegals)
-            elif d == 'Q' or d == 'q':
-                break
+            elif USER_ACTION in {'L', 'l'}:
+                print(ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE)
+            elif USER_ACTION in {'Q', 'q'}:
+                USER_DECIDED = True
             else:
-                print('Unknown choice "' + d + '"!')
+                print(f'Unknown choice "{USER_ACTION}"!')
+            if USER_DECIDED:
+                break
 
     # Clean all empty dirs in src and s_ns
-    print('Cleaning empty directories in ' + src + ' and ' + s_ns)
-    clean_empty_dirs(src)
-    clean_empty_dirs(s_ns)
+    print(f'Cleaning empty directories in {SOURCE_DATA} and {SOURCE_NAME_SPACE}')
+    clean_empty_dirs(SOURCE_DATA)
+    clean_empty_dirs(SOURCE_NAME_SPACE)
     print('Migration finished')
     exit(0)
