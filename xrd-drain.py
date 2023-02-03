@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
 '''
-Version 1.3.0
+Version 1.3.1
 Migrates XRootD storage to different location
 Conforms to the ALICE exepriment storage layout
 Tested on CentOS 7.
@@ -61,12 +61,12 @@ if MULTIPROCESS_THREADS < 2:
 if not match(r'[a-z][a-z0-9\\\-]+:[a-z][a-z0-9\\\-]+', FILE_OWNER_AND_GROUP):
     exit(f'{FILE_OWNER_AND_GROUP} is not a valid user:group definition.')
 
-if ':' in list(DESTINATION_SERVER):
-    DESTINATION_SERVER, DESTIANTION_PORT = DESTINATION_SERVER.split(':')
+if ':' in DESTINATION_SERVER:
+    DESTINATION_SERVER, DESTINATION_PORT = DESTINATION_SERVER.split(':')
 else:
-    DESTIANTION_PORT = '22'
+    DESTINATION_PORT = '22'
 
-if '@' in list(DESTINATION_SERVER):
+if '@' in DESTINATION_SERVER:
     DESTINATION_SERVER_USER, DESTINATION_SERVER = DESTINATION_SERVER.split('@')
 else:
     DESTINATION_SERVER_USER = 'root'
@@ -84,7 +84,7 @@ def ssh_connection(socket_id=SOURCE_ID):
         '-o', 'Compression=no',
         '-x',
         '-T',
-        '-p', DESTIANTION_PORT,
+        '-p', DESTINATION_PORT,
         '-l', DESTINATION_SERVER_USER
     ]
 
