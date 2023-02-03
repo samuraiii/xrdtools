@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
 '''
-Version 1.3.1
+Version 1.3.2
 Migrates XRootD storage to different location
 Conforms to the ALICE exepriment storage layout
 Tested on CentOS 7.
@@ -22,8 +22,8 @@ except ModuleNotFoundError:
     MULTI_THREAD = False
 
 OLD_ARGS = ''
-if len(argv) != 7 and len(argv) != 8:
-    OLD_ARGS = 'You gave:\n   ' + ' '.join(argv)
+if len(argv) not in {7, 8}:
+    OLD_ARGS = f"You gave:\n\r{' '.join(argv)}"
     argv[1:] = ['-h']
 
 if ('-h' in argv) or ('--help' in argv):
@@ -34,16 +34,12 @@ if ('-h' in argv) or ('--help' in argv):
     print(OLD_ARGS)
     exit(0)
 
-SOURCE_NAME_SPACE = argv[1]
-SOURCE_DATA = argv[2]
+SOURCE_NAME_SPACE, SOURCE_DATA, DESTINATION_SERVER = argv[1:4]
+DESTINATION_NAME_SPACE, DESTINATION_DATA, FILE_OWNER_AND_GROUP = argv[4:7]  # pylint: disable=unbalanced-tuple-unpacking
 SOURCE_ID = md5(
     f'{SOURCE_DATA}{str(random())}8ZS8s6tDDLOz+dDZVFTKaZ4mjIH'.encode('utf-8')
     ).hexdigest()
 TOPDOWN = bool(round(random()))
-DESTINATION_SERVER = argv[3]
-DESTINATION_NAME_SPACE = argv[4]
-DESTINATION_DATA = argv[5]
-FILE_OWNER_AND_GROUP = argv[6]
 TRANSFER_COUNT = 1
 ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE = set()
 SNYC_DIRECTORIES_ONLY = ['--include=*/', '--exclude=*']
