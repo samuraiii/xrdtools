@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
 '''
-Version 1.3.2
+Version 1.4.0
 Migrates XRootD storage to different location
 Conforms to the ALICE exepriment storage layout
 Tested on CentOS 7.
@@ -28,8 +28,8 @@ if len(argv) not in {7, 8}:
 
 if ('-h' in argv) or ('--help' in argv):
     print('This script is to be used in this way:')
-    print(f'{argv[0]} /source/name/space/path /source/path [user@]destination.server[:port] \
-         /destination/name/space/path /destination/path user:group [number of threads]')
+    print(f'{argv[0]} /source/name/space/path /source/path [user@]destination.server[:port] '\
+         '/destination/name/space/path /destination/path user:group [number of threads]')
     print('\tScript will perform the local move when the destination host is "localhost".')
     print(OLD_ARGS)
     exit(0)
@@ -170,9 +170,9 @@ def migrate(   # pylint: disable=too-many-branches,too-many-locals
         socket_name = f'{SOURCE_ID}-{worker_id}'
         # Sleep during first 110% of mp_threads transfers up
         # to ~10 seconds not to overwhelm the destinations sshd
-        if int(multi_thread_tranfers) \
+        if multi_thread_tranfers \
             < (MULTIPROCESS_THREADS + max((round(MULTIPROCESS_THREADS/10)), 1)):
-            sleep(int(multi_thread_tranfers)/(round(MULTIPROCESS_THREADS/10) + 1))
+            sleep(multi_thread_tranfers/(round(MULTIPROCESS_THREADS/10) + 1))
     else:
         socket_name = SOURCE_ID
     # create directory structure on destination
@@ -185,39 +185,39 @@ def migrate(   # pylint: disable=too-many-branches,too-many-locals
         # Rsync data file
         if rsync(rsync_command, socket_name) == 0:
             # Create link on destination and set owner:group
-            link_cmd = f'/bin/ln -sf {destination_file} {destination_link} && \
-                /bin/chown -h {FILE_OWNER_AND_GROUP} {destination_link} \
-                    {destination_file_directory_members}  {destination_link_directory_members}'
+            link_cmd = f'/bin/ln -sf {destination_file} {destination_link} && '\
+                f'/bin/chown -h {FILE_OWNER_AND_GROUP} {destination_link} '\
+                    f'{destination_file_directory_members}  {destination_link_directory_members}'
             if LOCAL_MOVE:
                 create_link = ['/bin/sh', '-c', link_cmd]
             else:
                 create_link = flatten([ssh_connection(socket_name), DESTINATION_SERVER, \
-                    f'/bin/ln -sf {destination_file} {destination_link} \
-                    && /bin/chown -h {FILE_OWNER_AND_GROUP} {destination_link} \
-                    {destination_file_directory_members} {destination_link_directory_members}'])
+                    f'/bin/ln -sf {destination_file} {destination_link} '\
+                    f'&& /bin/chown -h {FILE_OWNER_AND_GROUP} {destination_link} '\
+                    f'{destination_file_directory_members} {destination_link_directory_members}'])
             if call(create_link) == 0:
                 # Remove source data
                 if not LOCAL_MOVE:
                     remove(source_link)
                 remove(source_file)
                 with migration_iolock:
-                    print(f'Done migrating file  {multi_thread_tranfers.rjust(10)}: {source_link}')
+                    print(f'Done migrating file  {multi_thread_tranfers:>10}: {source_link}')
             else:
                 with migration_iolock:
                     # Link failure
-                    print(f'Failed to create link {DESTINATION_SERVER}:{destination_link} or \
-                        to set permissions! File: {multi_thread_tranfers.rjust(10)}: {source_link}')
+                    print(f'Failed to create link {DESTINATION_SERVER}:{destination_link} or '\
+                        f'to set permissions! File: {multi_thread_tranfers:>10}: {source_link}')
         else:
             with migration_iolock:
                 # Data failure
-                print(f'Failed to copy file: {source_file} to: \
-                    {DESTINATION_SERVER}:{destination_file}. File: \
-                    {multi_thread_tranfers.rjust(10)}: {source_link}')
+                print(f'Failed to copy file: {source_file} to: '\
+                    f'{DESTINATION_SERVER}:{destination_file}. File: '\
+                    f'{multi_thread_tranfers:>10}: {source_link}')
     else:
         with migration_iolock:
-            print(f'Failed to create directories: {destination_file_directory} \
-                and/or {destination_link_directory}. \
-                File: {multi_thread_tranfers.rjust(10)}: {source_link}')
+            print(f'Failed to create directories: {destination_file_directory} '\
+                f'and/or {destination_link_directory}. '\
+                f'File: {multi_thread_tranfers:>10}: {source_link}')
 
 
 def multithreaded_processing(multithread_queue, multithread_iolock):
@@ -244,16 +244,16 @@ if __name__ == '__main__':
     TEST_FILE = f'/.xrd-drain-testfile_55c4e792761ddeb2dc{SOURCE_ID}'
     TEST_FILE = [f'{DESTINATION_NAME_SPACE}{TEST_FILE}', f'{DESTINATION_DATA}{TEST_FILE}']
     for test_destination in TEST_FILE:
-        check_command = f'/bin/touch {test_destination} && /bin/chown {FILE_OWNER_AND_GROUP} \
-            {test_destination} && /bin/rm -f {test_destination}'
+        check_command = f'/bin/touch {test_destination} && /bin/chown {FILE_OWNER_AND_GROUP} '\
+            f'{test_destination} && /bin/rm -f {test_destination}'
         if LOCAL_MOVE:
             check = ['/bin/sh', '-c', check_command]
         else:
             check = flatten([ssh_connection(), DESTINATION_SERVER, check_command])
         RETURN_CODE = call(check)
         if RETURN_CODE != 0:
-            exit(f'Writing of test files to {DESTINATION_NAME_SPACE} and {DESTINATION_DATA} \
-                failed!\n Is {FILE_OWNER_AND_GROUP} defined on {DESTINATION_SERVER}?')
+            exit(f'Writing of test files to {DESTINATION_NAME_SPACE} and {DESTINATION_DATA} '\
+                f'failed!\n Is {FILE_OWNER_AND_GROUP} defined on {DESTINATION_SERVER}?')
 
     if MULTI_THREAD:
         # Set up the multiprocess pool and queue
@@ -276,7 +276,7 @@ if __name__ == '__main__':
                 try:
                     LINK_TARGET = readlink(filepath)
                 except FileNotFoundError:
-                    print(f'Error file {str(TRANSFER_COUNT).rjust(10)}: Link {path} not found.')
+                    print(f'Error file {TRANSFER_COUNT:10}: Link {path} not found.')
                     LINK_TARGET = None
                 if LINK_TARGET is not None:
                     # Check if link address is absolute
@@ -291,12 +291,11 @@ if __name__ == '__main__':
                         else:
                             # Migrate all data
                             with IOLOCK:
-                                print(f'Start migrating file {str(TRANSFER_COUNT).rjust(10)}: \
-                                    {filepath}')
+                                print(f'Start migrating file {TRANSFER_COUNT:>10}: {filepath}')
                             if MULTI_THREAD:
-                                MULTITHREAD_QUEUE.put((filepath, LINK_TARGET, str(TRANSFER_COUNT)))
+                                MULTITHREAD_QUEUE.put((filepath, LINK_TARGET, TRANSFER_COUNT))
                             else:
-                                migrate(filepath, LINK_TARGET, str(TRANSFER_COUNT), \
+                                migrate(filepath, LINK_TARGET, TRANSFER_COUNT, \
                                     IOLOCK, SOURCE_ID)
                             TRANSFER_COUNT += 1
             else:
@@ -320,8 +319,8 @@ if __name__ == '__main__':
         while USER_ACTION not in {'q', 'Q'}:
             print(f'Found {ILLEGALS_COUNT} illegal (not links) entries in namespace.')
             print('What would you like to do about it?')
-            USER_ACTION = input('(D)elete entries\n(L)ist entries\
-                \n(Q)uit and do nothing about it\n')
+            USER_ACTION = input('(D)elete entries\n(L)ist entries'\
+                '\n(Q)uit and do nothing about it\n')
             # Delete illegals
             if USER_ACTION in {'D', 'd'}:
                 for test_destination in ILLEGAL_ENTRIES_IN_SOURCE_NAME_SPACE:
