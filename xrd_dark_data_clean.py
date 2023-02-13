@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.2.0
+# Version 1.2.1
 '''
 Scans all entries in XRootD namespace
 and than scans all data files,
@@ -115,7 +115,7 @@ if __name__ == '__main__':
         USER_INPUT: str = ''
         # Ask what to do about all illegal files
         # Ignore it with 'q'
-        while USER_INPUT not in {'q', 'Q'}:
+        while USER_INPUT not in {'q', 'Q', 'd', 'D'}:
             print(f'Found {ILLEGALS_COUNT} illegal (not links) entries in namespace.')
             print('What would you like to do about it?')
             print('\nBeware if you have some file systems unmounted!!!')
@@ -123,7 +123,10 @@ if __name__ == '__main__':
             # Delete illegals
             if USER_INPUT in {'D', 'd'}:
                 for ILLEGAL_ENTRY in ILLEGAL_NAME_SPACE_ENTRIES:
-                    remove(ILLEGAL_ENTRY)
+                    try:
+                        remove(ILLEGAL_ENTRY)
+                    except FileNotFoundError:
+                        pass
                 print('Illegal entries were deleted.')
                 USER_INPUT = 'Q'
             # List all illegal files
