@@ -1,115 +1,139 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 1.1.1
+# Version 1.2.0
+'''
+Scans all entries in XRootD namespace
+and than scans all data files,
+deleting all data files not found in namespace.
+It also finds all illegal namespace entires (not links)
+and allows them to be deleted.
+'''
 from os import path, readlink, remove, walk
-from sys import argv, exit, stdout
-from re import sub, escape, match
+from sys import argv, exit, stdout  # pylint: disable=redefined-builtin
 from subprocess import call
 
-textwidth = 120
+TEXT_WIDTH: int = 120
 
 
-def cdnf(cdir):
-    """This check if parameter is existing dir or it fails script"""
-    if not path.isdir(cdir):
-        exit(cdir + ' should be directory but it is not!')
-    return
+def check_if_dir_exists(check_dir: str) -> None:
+    '''
+    This check if parameter is existing dir or it fails script
+    '''
+    if not path.isdir(check_dir):
+        exit(f'{check_dir} should be directory but it is not!')
 
 
-def clean_empty_dirs(directory_to_be_cleaned):
-    """Finds (depth first) all empty dirs and deletes them"""
-    call(['/bin/find', directory_to_be_cleaned, '-mindepth', '1', '-type', 'd', '-empty', '-delete'])
+def status_print(print_line: str, keep: bool=True) -> None:
+    '''
+    Prints line TEXT_WIDTH long (left padded),
+    either permanently (keep == True) or to be overwritten.
+    '''
+    formated_line: str = print_line.ljust(TEXT_WIDTH)
+    if keep:
+        print(formated_line)
+    else:
+        stdout.write(f'{formated_line}\r')
+        stdout.flush()
 
 
-if __name__ == "__main__":
-    old_args = ''
+def clean_empty_dirs(directory_to_be_cleaned: str) -> None:
+    '''
+    Finds (depth first) all empty dirs and deletes them
+    '''
+    call(['/bin/find', directory_to_be_cleaned, '-mindepth', \
+        '1', '-type', 'd', '-empty', '-delete'])
+
+
+if __name__ == '__main__':
+    OLD_ARGS: str = ''
     if len(argv) < 3:
-        old_args = '\nYou gave:\n   ' + ' '.join(argv)
+        OLD_ARGS = f"\nYou gave:\n   {' '.join(argv)}"
         argv[1:] = ['-h']
 
     if ('-h' in argv) or ('--help' in argv):
         print('This script is to be used in this way:')
-        print(argv[0] + ' /name/space/path /data/path/1 [/data/path/2] ... [/data/path/n]' + old_args)
+        print(f'{argv[0]} /name/space/path /data/path/1 '\
+            '[/data/path/2] ... [/data/path/n] {OLD_ARGS}')
         exit(0)
 
-    ns = argv[1]
-    data = argv[2:]
-    ns_links = set()
-    illegals = set()
-    i = 1
+    NAME_SPACE: str = argv[1]
+    DATA_DIRS: list = argv[2:]
+    NAME_SPACE_LINKS: set = set()
+    ILLEGAL_NAME_SPACE_ENTRIES: set = set()
+    ITERATOR: int = 1
     # Check if name space and source are dirs
-    cdnf(ns)
-    for d in data:
-        cdnf(d)
+    check_if_dir_exists(NAME_SPACE)
+    for DATA_DIR in DATA_DIRS:
+        check_if_dir_exists(DATA_DIR)
 
-    print('Collecting all link targets in ' + ns)
+    print('Collecting all link targets in ' + NAME_SPACE)
 
     # Find all link targets in ns
-    for root, dirs, files in walk(ns):
-        for filename in files:
+    for name_space_root, _, name_space_files in walk(NAME_SPACE):
+        for name_space_entry in name_space_files:
             # Create file name
-            fpath = path.join(root, filename)
-            if (i % 1000) == 0:
-                stdout.write(('Processing NS entry %d: %s' % (i, fpath)).ljust(textwidth) + '\r')
-                stdout.flush()
+            name_space_entry_path: str = path.join(name_space_root, name_space_entry)
+            if (ITERATOR % 1000) == 0:
+                status_print(f'Processing NS entry {ITERATOR}: {name_space_entry_path}', keep=False)
             # Check if it is link
-            if path.islink(fpath):
+            if path.islink(name_space_entry_path):
                 # Get link target
-                target = readlink(fpath)
+                name_space_link_target: str = readlink(name_space_entry_path)
                 # Check if link address is absolute
-                if not path.isabs(target):
+                if not path.isabs(name_space_link_target):
                     # Create absolute link address
-                    target = path.abspath(path.join(path.dirname(target), target))
-                if path.isfile(target):
-                    ns_links.add(target)
-                    i += 1
+                    name_space_link_target = path.abspath(
+                        path.join(
+                            path.dirname(name_space_link_target),
+                            name_space_link_target))
+                if path.isfile(name_space_link_target):
+                    NAME_SPACE_LINKS.add(name_space_link_target)
+                    ITERATOR += 1
                 else:
-                    illegals.add(fpath)
+                    ILLEGAL_NAME_SPACE_ENTRIES.add(name_space_entry_path)
             else:
-                illegals.add(fpath)
-    print('\r' + ('Found total of %d links.' % i).ljust(textwidth))
+                ILLEGAL_NAME_SPACE_ENTRIES.add(name_space_entry_path)
+    status_print(f'Found total of {ITERATOR} links.')
 
-    i = 1
-    for d in data:
-        for root, dirs, files in walk(d):
-            for filename in files:
+    ITERATOR = 1
+    for DATA_DIR in DATA_DIRS:
+        for data_root, _, data_files in walk(DATA_DIR):
+            for data_file in data_files:
                 # Create file name
-                fpath = path.join(root, filename)
-                if (i % 100) == 0:
-                    stdout.write(('Processing data entry %d: %s' % (i, fpath)).ljust(textwidth) + '\r')
-                    stdout.flush()
+                data_file_path: str = path.join(data_root, data_file)
+                if (ITERATOR % 100) == 0:
+                    status_print(f'Processing data entry {ITERATOR}: {data_file_path}', keep=False)
                 # Check if file is in NS entries
-                if not (fpath in ns_links):
-                    print('\r' + ('Removing dark data file: ' + fpath).ljust(textwidth) + '\n')
-                    remove(fpath)
-                i += 1
+                if not data_file_path in NAME_SPACE_LINKS:
+                    status_print(f'Removing dark data file: {data_file_path}')
+                    remove(data_file_path)
+                ITERATOR += 1
 
     # Count all illegals
-    icount = len(illegals)
-    if icount > 0:
-        d = ''
+    ILLEGALS_COUNT: int = len(ILLEGAL_NAME_SPACE_ENTRIES)
+    if ILLEGALS_COUNT > 0:
+        USER_INPUT: str = ''
         # Ask what to do about all illegal files
         # Ignore it with 'q'
-        while d != 'q' or d != 'Q':
-            print('Found %d illegal (not links) entries in namespace.\nWhat would you like to do about it?\n'
-                  '\nBeware if you have some file systems unmounted!!!\n' % icount)
-            d = input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
+        while USER_INPUT not in {'q', 'Q'}:
+            print(f'Found {ILLEGALS_COUNT} illegal (not links) entries in namespace.')
+            print('What would you like to do about it?')
+            print('\nBeware if you have some file systems unmounted!!!')
+            USER_INPUT = input('(D)elete entires\n(L)ist entires\n(Q)uit and do nothing about it\n')
             # Delete illegals
-            if d == 'D' or d == 'd':
-                for f in illegals:
-                    remove(f)
+            if USER_INPUT in {'D', 'd'}:
+                for ILLEGAL_ENTRY in ILLEGAL_NAME_SPACE_ENTRIES:
+                    remove(ILLEGAL_ENTRY)
                 print('Illegal entries were deleted.')
-                break
+                USER_INPUT = 'Q'
             # List all illegal files
-            elif d == 'L' or d == 'l':
-                print(illegals)
-            elif d == 'Q' or d == 'q':
-                break
+            elif USER_INPUT in {'L', 'l'}:
+                print(ILLEGAL_NAME_SPACE_ENTRIES)
             else:
-                print('Unknown choice "' + d + '"!')
+                print(f'Unknown choice "{USER_INPUT}"!')
 
     # Clean all empty dirs in src and s_ns
     print('Cleaning empty directories in data dirs')
-    for d in data:
-        clean_empty_dirs(d)
+    for DATA_DIR in DATA_DIRS:
+        clean_empty_dirs(DATA_DIR)
     exit(0)
