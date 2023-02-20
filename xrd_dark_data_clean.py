@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 2.0.0
+# Version 2.0.1
 '''
 Scans all entries in XRootD namespace
 and than scans all data files,
@@ -12,6 +12,7 @@ from os import path, readlink, remove, cpu_count, scandir
 from sys import argv, exit, stdout, stderr # pylint: disable=redefined-builtin
 from subprocess import call
 from threading import Lock, Condition, Thread
+from typing import Union, Generator, TextIO
 
 TEXT_WIDTH: int = 150
 THREADS: int = cpu_count()*2
@@ -22,9 +23,9 @@ def status_print(print_line: str, keep: bool = True, error: bool = False) -> Non
     either permanently (keep == True) or to be overwritten.
     '''
     if error:
-        outfile = stderr
+        outfile: TextIO = stderr
     else:
-        outfile = stdout
+        outfile: TextIO = stdout
     formated_line: str = print_line.ljust(TEXT_WIDTH)
     if keep:
         print(formated_line, file = outfile)
@@ -36,7 +37,7 @@ def status_print(print_line: str, keep: bool = True, error: bool = False) -> Non
 def walk(top: str,
     threads: int = THREADS,
     separate_links: bool = True,
-    full_paths: bool = True):
+    full_paths: bool = True) -> Generator:
     '''
     Multi-threaded version of os.walk() with some improvements
     '''
@@ -141,30 +142,28 @@ def get_name_space_links(name_space_root: str) -> tuple:
         'valid_links': set(),
     }
 
-    def process_name_space_link(link_to_check: str)-> str:
+    def process_name_space_link(link_to_check: str) -> Union[str, None]:
         '''
         Checks if given path is link to existing file
         '''
-        out: str = link_to_check
+        out: Union[str, None] = None
         link_target: str = readlink(link_to_check)
         # Check if link address is absolute
         if not path.isabs(link_target):
             # Create absolute link address
-            link_target = path.abspath(path.join(path.dirname(link_target), link_target))
+            link_target = path.abspath(path.join(path.dirname(link_to_check), link_target))
         if path.isfile(link_target):
             out = link_target
         return out
 
     # Find all link targets in ns
     for _, _, name_space_files, name_space_links in walk(name_space_root):
-        for name_space_link in name_space_links:
-            getns_state['links_to_process'].add(name_space_link)
+        for getns_link in name_space_links:
+            getns_state['links_to_process'].add(getns_link)
             getns_state['link_count'] += 1
-            if (getns_state['link_count'] % 1_000) == 0:
-                status_print(f'Found NS entry {getns_state["link_count"]:_}: {name_space_link}', \
-                    keep=False)
-        for getns_illegal in name_space_files:
-            getns_state['illegal_ns_data'].add(getns_illegal)
+            if getns_state['link_count'] % 1000 == 0:
+                status_print(f'Found {getns_state["link_count"]:_} entries so far...', keep=False)
+        getns_state['illegal_ns_data'] = getns_state['illegal_ns_data'].union(name_space_files)
     status_print(f'Found {getns_state["link_count"]:_} name space entries')
 
     def getns_worker() -> None:
@@ -180,12 +179,12 @@ def get_name_space_links(name_space_root: str) -> tuple:
                         status_print(f'Processing NS entry {getns_state["iterator"]:_} of '\
                             f'{getns_state["link_count"]:_}: {getns_path}', keep=False)
                     break
-            getns_target: str = process_name_space_link(getns_path)
+            getns_target: Union[str, None] = process_name_space_link(getns_path)
             with getns_lock:
-                if getns_target == getns_path:
-                    getns_state['illegal_ns_data'].add(getns_path)
-                else:
+                if getns_target and getns_target not in getns_state['valid_links']:
                     getns_state['valid_links'].add(getns_target)
+                else:
+                    getns_state['illegal_ns_data'].add(getns_path)
                 if len(getns_state['links_to_process']) == 0:
                     getns_on_input.notify_all()
 
@@ -196,7 +195,7 @@ def get_name_space_links(name_space_root: str) -> tuple:
     for getns_start_worker in getns_workers:
         getns_start_worker.join()
     status_print(f'Found {len(getns_state["valid_links"]):_} valid name space entries')
-    return getns_state['valid_links'], getns_state['illegal_ns_data']
+    return (getns_state['valid_links'], getns_state['illegal_ns_data'])
 
 
 def find_dark_data(data_directories: list, name_space_links: set) -> set:
@@ -216,7 +215,6 @@ def find_dark_data(data_directories: list, name_space_links: set) -> set:
                         keep=False)
                 # Check if file is in NS entries
                 if not data_file in name_space_links:
-                    status_print(f'Found dark data file: {data_file}')
                     dark_data.add(data_file)
                 dark_iterator += 1
     return dark_data
@@ -271,9 +269,9 @@ if __name__ == '__main__':
 
     NAME_SPACE: str = argv[1]
     DATA_DIRS: list = argv[2:]
-    NAME_SPACE_LINKS: set = set()
-    ILLEGAL_NAME_SPACE_ENTRIES: set = set()
-    DARK_DATA: set = set()
+    NAME_SPACE_LINKS: set
+    ILLEGAL_NAME_SPACE_ENTRIES: set
+    DARK_DATA: set
     check_if_dir_exists(NAME_SPACE)
     for DATA_DIR in DATA_DIRS:
         check_if_dir_exists(DATA_DIR)
@@ -286,47 +284,47 @@ if __name__ == '__main__':
 
     DARK_DATA_COUNT: int = len(DARK_DATA)
     if DARK_DATA_COUNT > 0:
-        USER_INPUT: str = ''
-        while USER_INPUT not in {'q', 'Q', 'd', 'D'}:
+        DATA_USER_INPUT: str = ''
+        while DATA_USER_INPUT not in {'q', 'Q', 'd', 'D'}:
             status_print(f'Found {DARK_DATA_COUNT:_} dark data files.')
             status_print('What would you like to do about it?')
-            USER_INPUT = input('(D)elete entires\n(L)ist entires\n'\
+            DATA_USER_INPUT = input('(D)elete entires\n(L)ist entires\n'\
                 '(Q)uit and do nothing about it\n(S)ave the entirs into a file\n')
-            if USER_INPUT in {'D', 'd'}:
+            if DATA_USER_INPUT in {'D', 'd'}:
                 for dark_data_file in DARK_DATA:
                     delete(dark_data_file)
                 status_print('Dark data files were deleted.')
-                USER_INPUT = 'Q'
-            elif USER_INPUT in {'L', 'l'}:
+                DATA_USER_INPUT = 'Q'
+            elif DATA_USER_INPUT in {'L', 'l'}:
                 for dark_file in DARK_DATA:
                     status_print(dark_file)
-            elif USER_INPUT in {'S', 's'}:
+            elif DATA_USER_INPUT in {'S', 's'}:
                 save_to_file(DARK_DATA)
             else:
-                status_print(f'Unknown choice "{USER_INPUT}"!')
+                status_print(f'Unknown choice "{DATA_USER_INPUT}"!')
 
 
     ILLEGALS_COUNT: int = len(ILLEGAL_NAME_SPACE_ENTRIES)
     if ILLEGALS_COUNT > 0:
-        USER_INPUT: str = ''
-        while USER_INPUT not in {'q', 'Q', 'd', 'D'}:
+        ILLEGAL_USER_INPUT: str = ''
+        while ILLEGAL_USER_INPUT not in {'q', 'Q', 'd', 'D'}:
             status_print(f'Found {ILLEGALS_COUNT:_} illegal (not links or dangling links) '\
                 'entries in namespace.')
             status_print('What would you like to do about it?')
             status_print('\nBeware if you have some file systems unmounted!!!')
-            USER_INPUT = input('(D)elete entires\n(L)ist entires\n'\
+            ILLEGAL_USER_INPUT = input('(D)elete entires\n(L)ist entires\n'\
                 '(Q)uit and do nothing about it\n(S)ave the entirs into a file\n')
-            if USER_INPUT in {'D', 'd'}:
+            if ILLEGAL_USER_INPUT in {'D', 'd'}:
                 for ILLEGAL_ENTRY in ILLEGAL_NAME_SPACE_ENTRIES:
                     delete(ILLEGAL_ENTRY)
                 status_print('Illegal entries were deleted.')
-            elif USER_INPUT in {'L', 'l'}:
+            elif ILLEGAL_USER_INPUT in {'L', 'l'}:
                 for illegal in ILLEGAL_NAME_SPACE_ENTRIES:
                     status_print(illegal)
-            elif USER_INPUT in {'S', 's'}:
+            elif ILLEGAL_USER_INPUT in {'S', 's'}:
                 save_to_file(ILLEGAL_NAME_SPACE_ENTRIES)
             else:
-                status_print(f'Unknown choice "{USER_INPUT}"!')
+                status_print(f'Unknown choice "{ILLEGAL_USER_INPUT}"!')
 
     # Clean all empty dirs in src and s_ns
     status_print('Cleaning empty directories in data dirs')
