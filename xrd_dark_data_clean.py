@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set fileencoding=utf-8 :
-# Version 2.0.1
+# Version 2.0.2
 '''
 Scans all entries in XRootD namespace
 and than scans all data files,
@@ -11,7 +11,7 @@ and allows them to be deleted.
 from os import path, readlink, remove, cpu_count, scandir
 from sys import argv, exit, stdout, stderr # pylint: disable=redefined-builtin
 from subprocess import call
-from threading import Lock, Condition, Thread
+from threading import Lock, Condition, Thread, Event
 from typing import Union, Generator, TextIO
 
 TEXT_WIDTH: int = 150
@@ -134,6 +134,7 @@ def get_name_space_links(name_space_root: str) -> tuple:
     getns_lock: Lock = Lock()
     getns_on_input: Condition = Condition(getns_lock)
     getns_on_output: Condition = Condition(getns_lock)
+    getns_event: Event = Event()
     getns_state: dict = {
         'iterator': 0,
         'link_count': 0,
@@ -187,11 +188,17 @@ def get_name_space_links(name_space_root: str) -> tuple:
                     getns_state['illegal_ns_data'].add(getns_path)
                 if len(getns_state['links_to_process']) == 0:
                     getns_on_input.notify_all()
+                if getns_event.is_set():
+                    getns_on_input.notify_all()
+                    break
 
     getns_workers: list = [Thread(target=getns_worker, \
         name=f'getns_worker {i} {name_space_root}') for i in range(THREADS)]
-    for getns_start_worker in getns_workers:
-        getns_start_worker.start()
+    try:
+        for getns_start_worker in getns_workers:
+            getns_start_worker.start()
+    except KeyboardInterrupt:
+        getns_event.set()
     for getns_start_worker in getns_workers:
         getns_start_worker.join()
     status_print(f'Found {len(getns_state["valid_links"]):_} valid name space entries')
@@ -254,6 +261,40 @@ def save_to_file(data: any) -> None:
         savefile_handle.write(data_out)
 
 
+def handle_data(data_to_handle: set, dark: bool) -> None:
+    '''
+    Asks user for input and handles the entries
+    '''
+    data_count: int = len(data_to_handle)
+    if data_count > 0:
+        user_input: str = ''
+        while user_input not in {'q', 'Q', 'd', 'D'}:
+            if dark:
+                status_print(f'Found {data_count:_} dark data files.')
+            else:
+                status_print(f'Found {data_count:_} illegal (not links or dangling links) '\
+                    'entries in namespace.')
+                status_print('\nBeware if you have some file systems unmounted!!!')
+            status_print('What would you like to do about it?')
+            status_print('(D)elete entries')
+            status_print('(L)ist entries')
+            status_print('(S)ave the entries into a file')
+            user_input = input('(Q)uit and do nothing about it\n')
+            if user_input in {'D', 'd'}:
+                for entry in data_to_handle:
+                    delete(entry)
+                status_print('Entries were deleted...')
+            elif user_input in {'L', 'l'}:
+                for entry in data_to_handle:
+                    status_print(entry)
+            elif user_input in {'S', 's'}:
+                save_to_file(data_to_handle)
+            elif user_input in {'q', 'Q'}:
+                pass
+            else:
+                status_print(f'Unknown choice "{user_input}"!')
+
+
 
 if __name__ == '__main__':
     OLD_ARGS: str = ''
@@ -271,7 +312,6 @@ if __name__ == '__main__':
     DATA_DIRS: list = argv[2:]
     NAME_SPACE_LINKS: set
     ILLEGAL_NAME_SPACE_ENTRIES: set
-    DARK_DATA: set
     check_if_dir_exists(NAME_SPACE)
     for DATA_DIR in DATA_DIRS:
         check_if_dir_exists(DATA_DIR)
@@ -280,53 +320,10 @@ if __name__ == '__main__':
 
     NAME_SPACE_LINKS, ILLEGAL_NAME_SPACE_ENTRIES = get_name_space_links(NAME_SPACE)
 
-    DARK_DATA = find_dark_data(DATA_DIRS, NAME_SPACE_LINKS)
+    handle_data(find_dark_data(DATA_DIRS, NAME_SPACE_LINKS), True)
 
-    DARK_DATA_COUNT: int = len(DARK_DATA)
-    if DARK_DATA_COUNT > 0:
-        DATA_USER_INPUT: str = ''
-        while DATA_USER_INPUT not in {'q', 'Q', 'd', 'D'}:
-            status_print(f'Found {DARK_DATA_COUNT:_} dark data files.')
-            status_print('What would you like to do about it?')
-            DATA_USER_INPUT = input('(D)elete entires\n(L)ist entires\n'\
-                '(Q)uit and do nothing about it\n(S)ave the entirs into a file\n')
-            if DATA_USER_INPUT in {'D', 'd'}:
-                for dark_data_file in DARK_DATA:
-                    delete(dark_data_file)
-                status_print('Dark data files were deleted.')
-                DATA_USER_INPUT = 'Q'
-            elif DATA_USER_INPUT in {'L', 'l'}:
-                for dark_file in DARK_DATA:
-                    status_print(dark_file)
-            elif DATA_USER_INPUT in {'S', 's'}:
-                save_to_file(DARK_DATA)
-            else:
-                status_print(f'Unknown choice "{DATA_USER_INPUT}"!')
+    handle_data(ILLEGAL_NAME_SPACE_ENTRIES, False)
 
-
-    ILLEGALS_COUNT: int = len(ILLEGAL_NAME_SPACE_ENTRIES)
-    if ILLEGALS_COUNT > 0:
-        ILLEGAL_USER_INPUT: str = ''
-        while ILLEGAL_USER_INPUT not in {'q', 'Q', 'd', 'D'}:
-            status_print(f'Found {ILLEGALS_COUNT:_} illegal (not links or dangling links) '\
-                'entries in namespace.')
-            status_print('What would you like to do about it?')
-            status_print('\nBeware if you have some file systems unmounted!!!')
-            ILLEGAL_USER_INPUT = input('(D)elete entires\n(L)ist entires\n'\
-                '(Q)uit and do nothing about it\n(S)ave the entirs into a file\n')
-            if ILLEGAL_USER_INPUT in {'D', 'd'}:
-                for ILLEGAL_ENTRY in ILLEGAL_NAME_SPACE_ENTRIES:
-                    delete(ILLEGAL_ENTRY)
-                status_print('Illegal entries were deleted.')
-            elif ILLEGAL_USER_INPUT in {'L', 'l'}:
-                for illegal in ILLEGAL_NAME_SPACE_ENTRIES:
-                    status_print(illegal)
-            elif ILLEGAL_USER_INPUT in {'S', 's'}:
-                save_to_file(ILLEGAL_NAME_SPACE_ENTRIES)
-            else:
-                status_print(f'Unknown choice "{ILLEGAL_USER_INPUT}"!')
-
-    # Clean all empty dirs in src and s_ns
     status_print('Cleaning empty directories in data dirs')
     for DATA_DIR in DATA_DIRS:
         clean_empty_dirs(DATA_DIR)
