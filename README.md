@@ -8,6 +8,16 @@ This is still a work in progress, so you can expect some problem, but none of th
 There is Python3v1.0 tag to denote python3 support, but I would recommend to use "master" branch as you code source.
 
 
+# Code Readiness
+Following scripts are ready for production:
+- xrd_dark_data_clean.py
+- xrd_drain.py
+
+
+
+# TODO
+xrd_drain.py needs implement of the xattr stored name space link name.
+
 # Known Issues
 The default sshd connection limit (10) can cause that no more connections can be made to the taget server.
 
@@ -15,7 +25,7 @@ The default connection count in multithreaded (also default) run is "cpu count" 
 
 This can saturate connection pool in one instance on 6 core source machine.
 
-Please temporarly adjust `MaxSessions`  in `/etc/ssh/sshd_config` to something bigger than number of connections you are going to use durting the drain.
+Please temporarly adjust `MaxSessions`  in `/etc/ssh/sshd_config` to something bigger than number of connections you are going to use during the drain.
 
 
 
