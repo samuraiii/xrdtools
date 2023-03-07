@@ -16,7 +16,6 @@ from sys import argv, exit, stderr  # pylint: disable=redefined-builtin
 from threading import Condition, Thread, Event
 from threading import Lock as tLock
 from time import sleep
-from xmlrpc.client import Boolean
 
 OLD_ARGS: str = ''
 if len(argv) not in {7, 8}:
@@ -408,7 +407,7 @@ def start_migration(name_space: str, data_dir: str) -> set:
 if __name__ == '__main__':
     # Check if name space and source are dirs
     check_if_directory_exists(SOURCE_NAME_SPACE)
-    REGEX_DATA: Boolean = False
+    REGEX_DATA: bool = False
     if SOURCE_DATA.startswith('r'):
         REGEX_DATA = True
         print('Detected regex as source data directory')
